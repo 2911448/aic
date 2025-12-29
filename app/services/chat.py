@@ -1,4 +1,4 @@
-from src.app.graph.workflow import create_chat_graph
+from app.graph.workflow import create_chat_graph
 
 
 class ChatService:

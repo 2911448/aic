@@ -4,8 +4,8 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.app.api import router
-from src.app.core import settings
+from app.api.routes import router
+from app.core.config import settings
 
 
 @asynccontextmanager
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "src.app.main:app",
+        "main:app",
         host=settings.host,
         port=settings.port,
         reload=settings.debug,

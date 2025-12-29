@@ -34,7 +34,7 @@ cp .env.example .env
 ### 4. 启动开发服务器
 
 ```bash
-uv run uvicorn src.app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 或者使用快捷命令：
@@ -49,15 +49,14 @@ uv run dev
 
 ```
 aic/
-├── src/
-│   └── app/
-│   │   ├── api/          # API 路由
-│   │   ├── core/         # 核心配置
-│   │   ├── graph/        # LangGraph 工作流
-│   │   ├── models/       # Pydantic 数据模型
-│   │   ├── services/     # 业务逻辑服务
-│   │   └── main.py       # 应用入口
-│   └── config/           # 配置文件
+├── app/
+│   ├── api/          # API 路由
+│   ├── core/         # 核心配置
+│   ├── graph/        # LangGraph 工作流
+│   ├── models/       # Pydantic 数据模型
+│   ├── services/     # 业务逻辑服务
+│   ├── config/       # 配置文件
+│   └── main.py       # 应用入口
 ├── tests/                # 测试文件
 ├── pyproject.toml        # 项目配置
 └── README.md
@@ -77,9 +76,6 @@ uv run ruff format .
 
 # 代码检查
 uv run ruff check .
-
-# 类型检查
-uv run mypy src/
 ```
 
 ## License
