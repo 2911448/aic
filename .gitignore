@@ -36,6 +36,10 @@ ENV/
 .env.local
 *.local
 
+# Config files
+*.yaml
+*.yml
+
 # Testing
 .pytest_cache/
 .coverage
@@ -50,3 +54,5 @@ Thumbs.db
 .cursorindexingignore
 .cursor/
 .cursorignore/
+
+.logs/
