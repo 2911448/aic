@@ -8,11 +8,14 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "httpx>=0.28.0",
-    "langgraph>=0.2.0",
-    "langchain-core>=0.3.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.0",
+    "langgraph>=1.0.5",
+    "pymilvus>=2.6.5",
+    "loguru>=0.7.3",
+    "langchain>=1.2.0",
+    "langchain-openai>=1.1.6",
 ]
 
 [project.optional-dependencies]
@@ -31,11 +34,37 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py311"
+exclude = [
+    "venv/",
+    "build/",
+    "dist/",
+    "*.egg-info/",
+    "logs/"
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+select = [  # 启用的规则集（推荐组合）
+    "E",  # pycodestyle 错误规则
+    "W",  # pycodestyle 警告规则
+    "F",  # pyflakes 规则
+    "I",  # isort 导入排序规则
+    "UP", # pyupgrade 规则（升级语法，如 f-string 替代 .format）
+    "C",  # flake8-comprehensions 规则（优化列表推导式）
+    "B",  # flake8-bugbear 规则（常见 bug 检测）
+    "S",  # flake8-bandit 安全规则（检测安全漏洞）
+]
+ignore = [  # 忽略的具体规则
+    "E501",  # 忽略行长度超限（由 format 统一处理）
+    "W293",  # 忽略空白行警告
+    "I001",  # 忽略导入排序的特定规则（如需自定义）
+]
+
+[tool.ruff.format]
+quote-style = "double"  # 字符串引号风格（double/single）
+indent-style = "space"  # 缩进风格（space/tab）
+indent-width = 4  # 缩进宽度（默认 4）
 
 [tool.mypy]
 python_version = "3.11"
