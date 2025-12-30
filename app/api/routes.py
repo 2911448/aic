@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.models.schemas import HealthResponse, ChatRequest, ChatResponse
+from app.schemas.api import HealthResponse, ChatRequest, ChatResponse
 from app.services.chat import chat_service
 
 router = APIRouter()
@@ -17,4 +17,3 @@ async def chat(request: ChatRequest) -> ChatResponse:
     """聊天接口 - 使用 LangGraph 工作流处理消息"""
     response = await chat_service.process(request.message)
     return ChatResponse(message=response)
-

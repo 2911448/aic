@@ -33,4 +33,3 @@ def test_chat(client: TestClient) -> None:
     data = response.json()
     assert "message" in data
     assert "Hello" in data["message"]
-

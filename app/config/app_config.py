@@ -1,4 +1,3 @@
-from calendar import c
 import os
 from pydantic import BaseModel
 import yaml
@@ -49,13 +48,15 @@ class AppConfig(BaseModel):
         根据环境变量ENV加载不同的配置文件
         支持的环境: test(开发/测试环境), prod(生产环境), local(本地环境)
         """
-        env = os.getenv("ENV", "test")
+        env = os.getenv("ENV", "local")  # 默认使用local环境
         config_file = os.path.join(os.path.dirname(__file__), f"config_{env}.yaml")
 
         if not os.path.exists(config_file):
-            raise FileNotFoundError(f"配置文件 {config_file} 不存在")
+            raise FileNotFoundError(
+                f"配置文件 {config_file} 不存在。请确保配置文件存在，或设置环境变量 ENV=local"
+            )
 
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             content = f.read()
 
         config_dict = yaml.safe_load(content)

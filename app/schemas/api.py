@@ -1,3 +1,7 @@
+"""
+API 相关的数据模型
+"""
+
 from pydantic import BaseModel, Field
 
 
@@ -18,4 +22,3 @@ class ChatResponse(BaseModel):
     """聊天响应"""
 
     message: str = Field(..., description="AI 响应消息")
-

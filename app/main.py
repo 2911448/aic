@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,4 +55,3 @@ if __name__ == "__main__":
         port=settings.port,
         reload=settings.debug,
     )
-

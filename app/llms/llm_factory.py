@@ -1,11 +1,8 @@
-from typing import Optional, List
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from app.config.app_config import app_config
-from app.core.logger_config import logger
 
 
 async def get_gpt_model(temperature: float = 0.1) -> BaseChatModel:
@@ -25,6 +22,5 @@ async def get_gpt_model(temperature: float = 0.1) -> BaseChatModel:
         temperature=temperature,
         timeout=config["timeout"],
         api_key=SecretStr(config["api_key"]),
-        base_url=config["base_url"]
+        base_url=config["base_url"],
     )
-            

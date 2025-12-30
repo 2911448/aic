@@ -33,4 +33,3 @@ def create_chat_graph() -> StateGraph:
 
     # 编译图
     return graph_builder.compile()
-

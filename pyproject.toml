@@ -16,6 +16,7 @@ dependencies = [
     "loguru>=0.7.3",
     "langchain>=1.2.0",
     "langchain-openai>=1.1.6",
+    "langchain-text-splitters>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -64,7 +65,6 @@ ignore = [  # 忽略的具体规则
 [tool.ruff.format]
 quote-style = "double"  # 字符串引号风格（double/single）
 indent-style = "space"  # 缩进风格（space/tab）
-indent-width = 4  # 缩进宽度（默认 4）
 
 [tool.mypy]
 python_version = "3.11"
