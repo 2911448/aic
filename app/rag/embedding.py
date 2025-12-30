@@ -54,6 +54,24 @@ class BailianEmbeddingService:
         if not texts:
             return []
 
+        # 阿里云 DashScope API 批量限制：每次最多10个文本
+        # 如果超过限制，分批处理
+        BATCH_SIZE = 10
+        if len(texts) > BATCH_SIZE:
+            logger.info(f"文本数量 {len(texts)} 超过批量限制 {BATCH_SIZE}，将分批处理")
+            all_embeddings = []
+            for i in range(0, len(texts), BATCH_SIZE):
+                batch = texts[i : i + BATCH_SIZE]
+                batch_embeddings = await self.embed_texts(batch)
+                all_embeddings.extend(batch_embeddings)
+            return all_embeddings
+
+        # 记录请求详情
+        text_lengths = [len(t) for t in texts]
+        logger.info(
+            f"准备向量化 {len(texts)} 个文本，长度范围: {min(text_lengths)}-{max(text_lengths)} 字符"
+        )
+
         url = f"{self.base_url}/services/embeddings/text-embedding/text-embedding"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -90,8 +108,14 @@ class BailianEmbeddingService:
             except httpx.HTTPError as e:
                 last_error = e
                 retry_count += 1
+                error_detail = ""
+                if hasattr(e, "response") and e.response is not None:
+                    try:
+                        error_detail = f" - 响应内容: {e.response.text}"
+                    except:
+                        pass
                 logger.warning(
-                    f"向量化请求失败 (尝试 {retry_count}/{self.max_retries}): {e}"
+                    f"向量化请求失败 (尝试 {retry_count}/{self.max_retries}): {e}{error_detail}"
                 )
                 if retry_count < self.max_retries:
                     await self._wait_before_retry(retry_count)

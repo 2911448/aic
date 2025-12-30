@@ -24,6 +24,16 @@ class MilvusService:
         self.collection_name = self.config.collection_name
         self.vector_dim = self.config.vector_dimension
 
+    def __enter__(self):
+        """上下文管理器：进入时连接"""
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器：退出时关闭连接"""
+        self.close()
+        return False
+
     def connect(self):
         """连接到 Milvus 数据库"""
         try:

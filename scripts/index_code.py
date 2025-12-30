@@ -15,6 +15,7 @@ sys.path.insert(0, str(project_root))
 
 from app.rag.indexer import code_indexer
 from app.core.logger_config import logger
+from app.core.milvus import milvus_service
 
 
 async def init_database(drop_existing: bool = False):
@@ -29,6 +30,9 @@ async def init_database(drop_existing: bool = False):
     except Exception as e:
         logger.error(f"❌ 数据库初始化失败: {e}")
         raise
+    finally:
+        # 关闭数据库连接
+        milvus_service.close()
 
 
 async def index_project(
@@ -56,6 +60,9 @@ async def index_project(
     except Exception as e:
         logger.error(f"❌ 索引项目失败: {e}")
         raise
+    finally:
+        # 关闭数据库连接
+        milvus_service.close()
 
 
 async def search_code(
@@ -99,6 +106,9 @@ async def search_code(
     except Exception as e:
         logger.error(f"❌ 搜索失败: {e}")
         raise
+    finally:
+        # 关闭数据库连接
+        milvus_service.close()
 
 
 async def main():
