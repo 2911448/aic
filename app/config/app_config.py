@@ -1,5 +1,7 @@
 import os
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import yaml
 
@@ -36,6 +38,49 @@ class GPTModelsConfig(BaseModel):
     max_retries: int = 3
 
 
+class SandboxDockerConfig(BaseModel):
+    """沙箱 Docker 配置"""
+
+    image: str = Field(default="video-sandbox:0.1", description="默认 Docker 镜像")
+    memory_limit: str = Field(default="512m", description="默认内存限制")
+    cpu_limit: float = Field(default=1.0, description="默认 CPU 限制")
+    timeout: int = Field(default=300, description="默认超时时间（秒）")
+    workspace_path: str = Field(default="/workspace", description="容器内工作目录")
+    network_mode: str | None = Field(default=None, description="网络模式")
+
+
+class SandboxGitAuthConfig(BaseModel):
+    """沙箱 Git 认证配置"""
+
+    auth_type: Literal["ssh", "http", "auto"] = Field(
+        default="auto", description="认证类型"
+    )
+    ssh_private_key_path: str | None = Field(
+        default=None, description="SSH 私钥文件路径"
+    )
+    http_token: str | None = Field(
+        default=None, description="HTTP Personal Access Token"
+    )
+    http_username: str | None = Field(default=None, description="HTTP 用户名")
+
+
+class SandboxConfig(BaseModel):
+    """沙箱环境配置"""
+
+    enabled: bool = Field(default=True, description="是否启用沙箱功能")
+    base_workspace_path: str = Field(
+        default="/tmp/sandbox_workspaces", description="工作目录基础路径"
+    )
+    auto_cleanup: bool = Field(default=True, description="是否自动清理过期沙箱")
+    max_age_seconds: int = Field(default=3600, description="沙箱最大存活时间（秒）")
+    docker: SandboxDockerConfig = Field(
+        default_factory=SandboxDockerConfig, description="Docker 配置"
+    )
+    git_auth: SandboxGitAuthConfig | None = Field(
+        default=None, description="Git 认证配置"
+    )
+
+
 class GitLabConfig(BaseModel):
     webhook_secret: str
     verify_ssl: bool = True
@@ -47,6 +92,9 @@ class AppConfig(BaseModel):
     milvus: MilvusConfig
     log: LogConfig
     gpt_models: GPTModelsConfig
+    sandbox: SandboxConfig = Field(
+        default_factory=SandboxConfig, description="沙箱环境配置"
+    )
     gitlab: GitLabConfig
 
     @classmethod
