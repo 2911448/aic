@@ -1,5 +1,6 @@
 import os
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 import yaml
 
 
@@ -35,12 +36,18 @@ class GPTModelsConfig(BaseModel):
     max_retries: int = 3
 
 
+class GitLabConfig(BaseModel):
+    webhook_secret: str
+    verify_ssl: bool = True
+
+
 class AppConfig(BaseModel):
     app_name: str
     bailian: BailianConfig
     milvus: MilvusConfig
     log: LogConfig
     gpt_models: GPTModelsConfig
+    gitlab: GitLabConfig
 
     @classmethod
     def load_config(cls):
@@ -64,3 +71,21 @@ class AppConfig(BaseModel):
 
 
 app_config: AppConfig = AppConfig.load_config()
+
+
+class Settings(BaseSettings):
+    """应用设置"""
+
+    app_name: str = "AIC - AI Code Assistant"
+    host: str = "0.0.0.0"
+    port: int = 8000
+    debug: bool = True
+    api_prefix: str = "/api/v1"
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+# 全局设置实例
+settings = Settings()
