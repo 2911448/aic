@@ -40,7 +40,7 @@ class GPTModelsConfig(BaseModel):
 class SandboxDockerConfig(BaseModel):
     """沙箱 Docker 配置"""
 
-    image: str = Field(default="my-ubuntu:20.04", description="默认 Docker 镜像")
+    image: str = Field(default="video-sandbox:0.1", description="默认 Docker 镜像")
     memory_limit: str = Field(default="512m", description="默认内存限制")
     cpu_limit: float = Field(default=1.0, description="默认 CPU 限制")
     timeout: int = Field(default=300, description="默认超时时间（秒）")
