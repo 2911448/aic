@@ -17,6 +17,7 @@ dependencies = [
     "langchain>=1.2.0",
     "langchain-openai>=1.1.6",
     "langchain-text-splitters>=1.1.0",
+    "docker>=7.0.0",  # Docker SDK for Python
 ]
 
 [project.optional-dependencies]
