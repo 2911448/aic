@@ -169,8 +169,13 @@ class GitService:
 
             if not result.success:
                 # 检查是否是认证错误
-                if "Authentication failed" in result.stderr or "Permission denied" in result.stderr:
-                    raise GitAuthError("Git 认证失败，请检查 SSH Key 或 Token", self._sandbox_id)
+                if (
+                    "Authentication failed" in result.stderr
+                    or "Permission denied" in result.stderr
+                ):
+                    raise GitAuthError(
+                        "Git 认证失败，请检查 SSH Key 或 Token", self._sandbox_id
+                    )
                 raise GitCloneError(repo_url, result.stderr, self._sandbox_id)
 
             # 确定仓库路径
@@ -189,13 +194,17 @@ class GitService:
                 timeout=10,
                 check=False,
             )
-            commit_hash = commit_result.stdout.strip() if commit_result.success else None
+            commit_hash = (
+                commit_result.stdout.strip() if commit_result.success else None
+            )
 
             # 更新沙箱的仓库信息
             sandbox.repo_url = repo_url
             sandbox.current_branch = branch
 
-            logger.info(f"沙箱 {self._sandbox_id}: 克隆成功, commit={commit_hash[:8] if commit_hash else 'unknown'}")
+            logger.info(
+                f"沙箱 {self._sandbox_id}: 克隆成功, commit={commit_hash[:8] if commit_hash else 'unknown'}"
+            )
 
             return CloneResult(
                 success=True,
@@ -392,7 +401,10 @@ class GitService:
             result = await self._execute(command, timeout=30, check=False)
 
             if not result.success:
-                if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
+                if (
+                    "nothing to commit" in result.stdout
+                    or "nothing to commit" in result.stderr
+                ):
                     logger.info(f"沙箱 {self._sandbox_id}: 没有需要提交的变更")
                     # 返回当前 HEAD
                     head_result = await self._execute(
@@ -465,7 +477,9 @@ class GitService:
                 if "Authentication failed" in stderr or "Permission denied" in stderr:
                     raise GitAuthError("推送认证失败", self._sandbox_id)
                 if "rejected" in stderr:
-                    raise GitPushError(branch, "推送被拒绝，可能需要先拉取更新", self._sandbox_id)
+                    raise GitPushError(
+                        branch, "推送被拒绝，可能需要先拉取更新", self._sandbox_id
+                    )
                 raise GitPushError(branch, stderr, self._sandbox_id)
 
             logger.info(f"沙箱 {self._sandbox_id}: 推送成功")
@@ -525,11 +539,13 @@ class GitService:
             # 暂存区状态
             if index_status != " " and index_status != "?":
                 file_status = self._parse_status_char(index_status)
-                staged_files.append(GitFileChange(
-                    path=filepath,
-                    status=file_status,
-                    old_path=old_path,
-                ))
+                staged_files.append(
+                    GitFileChange(
+                        path=filepath,
+                        status=file_status,
+                        old_path=old_path,
+                    )
+                )
 
             # 工作区状态
             if work_status != " ":
@@ -537,10 +553,12 @@ class GitService:
                     untracked_files.append(filepath)
                 else:
                     file_status = self._parse_status_char(work_status)
-                    unstaged_files.append(GitFileChange(
-                        path=filepath,
-                        status=file_status,
-                    ))
+                    unstaged_files.append(
+                        GitFileChange(
+                            path=filepath,
+                            status=file_status,
+                        )
+                    )
 
         is_clean = not staged_files and not unstaged_files and not untracked_files
 
@@ -733,4 +751,3 @@ class GitService:
 
         result = await self._execute(command, timeout=30)
         return result
-

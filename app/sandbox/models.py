@@ -33,8 +33,12 @@ class GitAuthConfig(BaseModel):
 
     auth_type: GitAuthType = GitAuthType.AUTO
     ssh_private_key: str | None = Field(default=None, description="SSH 私钥内容")
-    ssh_private_key_path: str | None = Field(default=None, description="SSH 私钥文件路径")
-    http_token: str | None = Field(default=None, description="HTTP Personal Access Token")
+    ssh_private_key_path: str | None = Field(
+        default=None, description="SSH 私钥文件路径"
+    )
+    http_token: str | None = Field(
+        default=None, description="HTTP Personal Access Token"
+    )
     http_username: str | None = Field(default=None, description="HTTP 用户名（可选）")
 
     def get_effective_auth_type(self, repo_url: str) -> GitAuthType:
@@ -130,8 +134,12 @@ class GitStatus(BaseModel):
     branch: str = Field(description="当前分支")
     commit_hash: str = Field(description="当前 commit hash")
     is_clean: bool = Field(description="工作区是否干净")
-    staged_files: list[GitFileChange] = Field(default_factory=list, description="暂存区文件")
-    unstaged_files: list[GitFileChange] = Field(default_factory=list, description="未暂存文件")
+    staged_files: list[GitFileChange] = Field(
+        default_factory=list, description="暂存区文件"
+    )
+    unstaged_files: list[GitFileChange] = Field(
+        default_factory=list, description="未暂存文件"
+    )
     untracked_files: list[str] = Field(default_factory=list, description="未跟踪文件")
     ahead: int = Field(default=0, description="领先远程分支的提交数")
     behind: int = Field(default=0, description="落后远程分支的提交数")
@@ -154,4 +162,3 @@ class PatchResult(BaseModel):
     applied_files: list[str] = Field(default_factory=list, description="成功应用的文件")
     failed_files: list[str] = Field(default_factory=list, description="应用失败的文件")
     message: str = Field(default="", description="结果信息")
-

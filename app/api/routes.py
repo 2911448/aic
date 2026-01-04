@@ -67,6 +67,4 @@ async def gitlab_webhook(
         raise HTTPException(status_code=400, detail=f"Invalid payload: {str(e)}")
     except Exception as e:
         logger.error(f"处理 webhook 失败: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Internal server error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

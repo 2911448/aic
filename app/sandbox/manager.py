@@ -98,8 +98,10 @@ class SandboxManager:
 
         try:
             # 准备 Git 认证相关的卷挂载和环境变量
-            extra_volumes, extra_env = await self._prepare_git_auth(config.git_auth, workspace_path)
-            
+            extra_volumes, extra_env = await self._prepare_git_auth(
+                config.git_auth, workspace_path
+            )
+
             # 合并环境变量
             merged_env = {**config.environment, **extra_env}
             config_with_env = config.model_copy(update={"environment": merged_env})
@@ -130,7 +132,7 @@ class SandboxManager:
             sandbox.status = SandboxStatus.FAILED
             sandbox.error_message = str(e)
             logger.error(f"沙箱创建失败: {sandbox_id}, 错误: {e}")
-            
+
             # 清理失败的资源
             await self._cleanup_failed_sandbox(sandbox_id)
             raise SandboxCreationError(str(e), sandbox_id) from e
@@ -163,7 +165,9 @@ class SandboxManager:
                 with open(key_path, "w") as f:
                     f.write(git_auth.ssh_private_key)
                 os.chmod(key_path, 0o600)
-            elif git_auth.ssh_private_key_path and os.path.exists(git_auth.ssh_private_key_path):
+            elif git_auth.ssh_private_key_path and os.path.exists(
+                git_auth.ssh_private_key_path
+            ):
                 shutil.copy2(git_auth.ssh_private_key_path, key_path)
                 os.chmod(key_path, 0o600)
 
@@ -230,7 +234,11 @@ class SandboxManager:
                 await self._docker_client.remove_container(container, force=True)
 
             sandbox = self._sandboxes.get(sandbox_id)
-            if sandbox and sandbox.workspace_path and os.path.exists(sandbox.workspace_path):
+            if (
+                sandbox
+                and sandbox.workspace_path
+                and os.path.exists(sandbox.workspace_path)
+            ):
                 shutil.rmtree(sandbox.workspace_path, ignore_errors=True)
         except Exception as e:
             logger.warning(f"清理失败的沙箱资源时出错: {e}")
@@ -331,7 +339,9 @@ class SandboxManager:
         sandbox.stopped_at = datetime.now()
         logger.info(f"沙箱已停止: {sandbox_id}")
 
-    async def destroy_sandbox(self, sandbox_id: str, cleanup_workspace: bool = True) -> None:
+    async def destroy_sandbox(
+        self, sandbox_id: str, cleanup_workspace: bool = True
+    ) -> None:
         """
         销毁沙箱
 
@@ -434,4 +444,3 @@ def get_sandbox_manager() -> SandboxManager:
     if _sandbox_manager is None:
         _sandbox_manager = SandboxManager()
     return _sandbox_manager
-

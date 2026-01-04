@@ -98,9 +98,7 @@ class TestSandboxManager:
             assert "Python 3.11" in result.stdout
 
             # 测试命令失败
-            result = await sandbox_manager.execute_command(
-                sandbox.id, "exit 1"
-            )
+            result = await sandbox_manager.execute_command(sandbox.id, "exit 1")
             assert not result.success
             assert result.exit_code == 1
 
@@ -298,7 +296,9 @@ class TestGitService:
             # 初始化仓库
             await sandbox_manager.execute_command(sandbox.id, "git init test_repo")
             await file_service.write_file("test_repo/README.md", "# Test\n")
-            await git_service.commit("Initial commit", all_files=True, repo_path="test_repo")
+            await git_service.commit(
+                "Initial commit", all_files=True, repo_path="test_repo"
+            )
 
             # 创建新分支
             await git_service.checkout_branch(
@@ -311,7 +311,9 @@ class TestGitService:
 
             # 在新分支上提交
             await file_service.write_file("test_repo/feature.txt", "New feature\n")
-            await git_service.commit("Add feature", all_files=True, repo_path="test_repo")
+            await git_service.commit(
+                "Add feature", all_files=True, repo_path="test_repo"
+            )
 
             # 切换回主分支
             await git_service.checkout_branch("master", repo_path="test_repo")
@@ -339,7 +341,9 @@ class TestGitService:
             await git_service.commit("Initial", all_files=True, repo_path="test_repo")
 
             # 修改文件
-            await file_service.write_file("test_repo/file.txt", "line 1\nline 2 modified\n")
+            await file_service.write_file(
+                "test_repo/file.txt", "line 1\nline 2 modified\n"
+            )
 
             # 获取 diff
             diff = await git_service.diff(repo_path="test_repo")
@@ -357,12 +361,14 @@ class TestGitService:
     @pytest.mark.asyncio
     @pytest.mark.skipif(
         not os.environ.get("TEST_GIT_REPO"),
-        reason="需要设置 TEST_GIT_REPO 环境变量来测试远程克隆"
+        reason="需要设置 TEST_GIT_REPO 环境变量来测试远程克隆",
     )
     async def test_git_clone(self, sandbox_manager):
         """测试 Git 克隆（需要网络）"""
         # 使用公开仓库测试
-        repo_url = os.environ.get("TEST_GIT_REPO", "https://github.com/octocat/Hello-World.git")
+        repo_url = os.environ.get(
+            "TEST_GIT_REPO", "https://github.com/octocat/Hello-World.git"
+        )
 
         config = SandboxConfig(
             docker_image="video-sandbox:0.1",
@@ -401,7 +407,7 @@ class TestIntegration:
             # 2. 创建初始代码
             await file_service.write_file(
                 "project/main.py",
-                '''def add(a, b):
+                """def add(a, b):
     return a + b
 
 def main():
@@ -410,12 +416,16 @@ def main():
 
 if __name__ == "__main__":
     main()
-''',
+""",
             )
-            await git_service.commit("Initial commit", all_files=True, repo_path="project")
+            await git_service.commit(
+                "Initial commit", all_files=True, repo_path="project"
+            )
 
             # 3. 创建功能分支
-            await git_service.checkout_branch("feature/multiply", create=True, repo_path="project")
+            await git_service.checkout_branch(
+                "feature/multiply", create=True, repo_path="project"
+            )
 
             # 4. 添加新功能
             await file_service.write_file(
@@ -539,4 +549,3 @@ async def run_demo():
 if __name__ == "__main__":
     # 直接运行此文件进行演示
     asyncio.run(run_demo())
-

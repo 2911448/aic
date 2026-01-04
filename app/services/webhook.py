@@ -120,36 +120,72 @@ class WebhookService:
                 project_path=project.path_with_namespace,
             )
 
-        # 检查是否是 Issue 关闭事件
-        if payload.changes and "state" in payload.changes:
-            state_change = payload.changes["state"]
-            if state_change.get("current") == "closed":
-                logger.info("Issue 已关闭，跳过处理")
+        logger.info(f"启动 AI Agent 工作流处理 Issue #{issue_iid}")
+
+        try:
+            from app.graph.workflow import create_issue_workflow
+            from app.graph.state import IssueProcessState
+
+            # 构造初始状态
+            initial_state: IssueProcessState = {
+                "issue_data": issue,
+                "project_info": project.model_dump(),
+                "issue_type": None,
+                "search_queries": [],
+                "retrieved_code": [],
+                "code_scope": None,
+                "patch": None,
+                "patch_files": [],
+                "verification_result": None,
+                "executed_nodes": [],
+                "current_step": "init",
+                "error": None,
+                "completed": False,
+            }
+
+            # 创建并执行工作流
+            workflow = create_issue_workflow()
+            result = await workflow.ainvoke(initial_state)
+
+            # 检查执行结果
+            executed_nodes = result.get("executed_nodes", [])
+            error = result.get("error")
+
+            logger.info(
+                f"Workflow完成 | "
+                f"执行路径: {' → '.join(executed_nodes)} | "
+                f"错误: {error or 'None'}"
+            )
+
+            if error:
                 return WebhookResponse(
-                    status="success",
-                    message=f"Issue #{issue_iid} 已关闭，无需处理",
+                    status="error",
+                    message=f"Issue #{issue_iid} 处理失败: {error}",
                     event_type="issue",
                     issue_iid=issue_iid,
                     issue_title=issue.get("title"),
                     project_path=project.path_with_namespace,
                 )
 
-        # TODO: 这里后续会添加 AI Agent 处理逻辑
-        # 1. 解析 Issue 内容
-        # 2. 通过 RAG 检索相关代码
-        # 3. 定位问题代码
-        # 4. 生成修复方案
-        # 5. 创建 Merge Request
+            return WebhookResponse(
+                status="success",
+                message=f"Issue #{issue_iid} 处理完成，执行路径: {' → '.join(executed_nodes)}",
+                event_type="issue",
+                issue_iid=issue_iid,
+                issue_title=issue.get("title"),
+                project_path=project.path_with_namespace,
+            )
 
-        logger.info(f"✅ Issue #{issue_iid} 待处理（状态: opened）")
-        return WebhookResponse(
-            status="success",
-            message=f"Issue #{issue_iid} 事件已接收，等待 AI Agent 处理",
-            event_type="issue",
-            issue_iid=issue_iid,
-            issue_title=issue.get("title"),
-            project_path=project.path_with_namespace,
-        )
+        except Exception as e:
+            logger.error(f"Workflow执行失败: {e}", exc_info=True)
+            return WebhookResponse(
+                status="error",
+                message=f"Issue #{issue_iid} 处理失败: {str(e)}",
+                event_type="issue",
+                issue_iid=issue_iid,
+                issue_title=issue.get("title"),
+                project_path=project.path_with_namespace,
+            )
 
     async def _process_note_event(
         self,
@@ -175,9 +211,7 @@ class WebhookService:
         # 如果是 Issue 的评论，记录 Issue 信息
         if note.get("noteable_type") == "Issue" and payload.issue:
             issue = payload.issue
-            logger.info(
-                f"关联 Issue: #{issue.get('iid')} - {issue.get('title')}"
-            )
+            logger.info(f"关联 Issue: #{issue.get('iid')} - {issue.get('title')}")
 
         # TODO: 后续可以通过评论触发特定操作
         # 例如：评论 "/fix" 触发自动修复
@@ -192,4 +226,3 @@ class WebhookService:
 
 # 全局服务实例
 webhook_service = WebhookService()
-

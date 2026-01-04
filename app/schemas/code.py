@@ -16,9 +16,7 @@ class CodeSnippet(BaseModel):
     start_line: int = Field(..., description="代码起始行", ge=1)
     end_line: int = Field(..., description="代码结束行", ge=1)
     content: str = Field(..., description="代码原文", max_length=65535)
-    summary: str | None = Field(
-        None, description="函数摘要/Docstring", max_length=1024
-    )
+    summary: str | None = Field(None, description="函数摘要/Docstring", max_length=1024)
     last_updated: int = Field(..., description="时间戳（秒）")
     use_count: int = Field(default=0, description="成功修复被采纳次数", ge=0)
     embedding: list[float] | None = Field(None, description="代码向量（1024维）")

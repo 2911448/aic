@@ -94,7 +94,9 @@ class GitCloneError(GitError):
         sandbox_id: str | None = None,
     ):
         self.repo_url = repo_url
-        super().__init__(f"克隆仓库 {repo_url} 失败: {message}", sandbox_id, f"git clone {repo_url}")
+        super().__init__(
+            f"克隆仓库 {repo_url} 失败: {message}", sandbox_id, f"git clone {repo_url}"
+        )
 
 
 class GitPushError(GitError):
@@ -107,7 +109,11 @@ class GitPushError(GitError):
         sandbox_id: str | None = None,
     ):
         self.branch = branch
-        super().__init__(f"推送分支 {branch} 失败: {message}", sandbox_id, f"git push origin {branch}")
+        super().__init__(
+            f"推送分支 {branch} 失败: {message}",
+            sandbox_id,
+            f"git push origin {branch}",
+        )
 
 
 class GitBranchError(GitError):
@@ -168,4 +174,3 @@ class PatchApplyError(FileOperationError):
     ):
         self.failed_files = failed_files or []
         super().__init__(message, None, sandbox_id)
-

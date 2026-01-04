@@ -137,7 +137,9 @@ class DockerClient:
             if config.network_mode:
                 container_config["network_mode"] = config.network_mode
 
-            logger.info(f"创建容器: image={config.docker_image}, workspace={workspace_host_path}")
+            logger.info(
+                f"创建容器: image={config.docker_image}, workspace={workspace_host_path}"
+            )
 
             # 创建容器
             loop = asyncio.get_event_loop()
@@ -222,7 +224,9 @@ class DockerClient:
         try:
             # 构建 exec 配置（注意：demux 只在 exec_start 中使用）
             exec_config: dict[str, Any] = {
-                "cmd": command if isinstance(command, list) else ["/bin/sh", "-c", command],
+                "cmd": command
+                if isinstance(command, list)
+                else ["/bin/sh", "-c", command],
                 "stdout": True,
                 "stderr": True,
             }
@@ -261,8 +265,12 @@ class DockerClient:
 
             # 解析输出
             stdout_bytes, stderr_bytes = output if output else (b"", b"")
-            stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-            stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+            stdout = (
+                stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+            )
+            stderr = (
+                stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+            )
 
             duration_ms = int((time.time() - start_time) * 1000)
 
@@ -353,4 +361,3 @@ def get_docker_client() -> DockerClient:
     if _docker_client is None:
         _docker_client = DockerClient()
     return _docker_client
-

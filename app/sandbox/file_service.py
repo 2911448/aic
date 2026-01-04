@@ -405,13 +405,15 @@ class FileService:
                     mtime = None
                 is_dir = parts[3] == "d"
 
-                files.append(FileInfo(
-                    path=file_path,
-                    name=os.path.basename(file_path),
-                    is_dir=is_dir,
-                    size=size,
-                    modified_at=mtime,
-                ))
+                files.append(
+                    FileInfo(
+                        path=file_path,
+                        name=os.path.basename(file_path),
+                        is_dir=is_dir,
+                        size=size,
+                        modified_at=mtime,
+                    )
+                )
 
         return files
 
@@ -434,13 +436,15 @@ class FileService:
 
                 is_dir = permissions.startswith("d")
 
-                files.append(FileInfo(
-                    path=os.path.join(base_path, name),
-                    name=name,
-                    is_dir=is_dir,
-                    size=size,
-                    modified_at=None,
-                ))
+                files.append(
+                    FileInfo(
+                        path=os.path.join(base_path, name),
+                        name=name,
+                        is_dir=is_dir,
+                        size=size,
+                        modified_at=None,
+                    )
+                )
 
         return files
 
@@ -691,4 +695,3 @@ class FileService:
             size=size,
             modified_at=mtime,
         )
-

@@ -146,12 +146,9 @@ class GitLabWebhookPayload(BaseModel):
 class WebhookResponse(BaseModel):
     """Webhook 响应"""
 
-    status: Literal["success", "error", "pending"] = Field(
-        ..., description="处理状态"
-    )
+    status: Literal["success", "error", "pending"] = Field(..., description="处理状态")
     message: str = Field(..., description="响应消息")
     event_type: Optional[str] = Field(None, description="事件类型")
     issue_iid: Optional[int] = Field(None, description="Issue IID")
     issue_title: Optional[str] = Field(None, description="Issue 标题")
     project_path: Optional[str] = Field(None, description="项目路径")
-
