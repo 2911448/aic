@@ -22,12 +22,9 @@ import pytest
 from app.sandbox import (
     SandboxManager,
     SandboxConfig,
-    GitAuthConfig,
-    GitAuthType,
     SandboxStatus,
     GitService,
     FileService,
-    SandboxError,
     SandboxNotFoundError,
 )
 
@@ -476,7 +473,7 @@ if __name__ == "__main__":
             assert "Add multiply function" in log
             assert "Initial commit" in log
 
-            print(f"\n✅ 工作流测试完成！")
+            print("\n✅ 工作流测试完成！")
             print(f"   - 分支: {status.branch}")
             print(f"   - 最新提交: {commit_hash[:8]}")
 

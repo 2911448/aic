@@ -4,13 +4,11 @@
 负责沙箱的生命周期管理，包括创建、启动、停止和销毁
 """
 
-import asyncio
 import os
 import shutil
 import tempfile
 import uuid
 from datetime import datetime
-from typing import Any
 
 from docker.models.containers import Container
 from loguru import logger
@@ -27,7 +25,6 @@ from app.sandbox.models import (
     SandboxConfig,
     SandboxStatus,
     GitAuthConfig,
-    GitAuthType,
 )
 
 

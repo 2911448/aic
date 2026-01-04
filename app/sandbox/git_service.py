@@ -4,7 +4,6 @@ Git 服务
 在沙箱环境中执行 Git 操作，支持 SSH Key 和 HTTP Token 认证
 """
 
-import re
 from typing import TYPE_CHECKING
 
 from loguru import logger

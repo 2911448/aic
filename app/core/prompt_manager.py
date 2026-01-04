@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, Template, TemplateNotFound
+from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 from app.core.logger_config import logger
 

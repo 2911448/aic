@@ -254,7 +254,7 @@ class DockerClient:
 
             try:
                 output = await asyncio.wait_for(run_exec(), timeout=timeout)
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise SandboxTimeoutError(container.id[:12], timeout) from e
 
             # 获取退出码
