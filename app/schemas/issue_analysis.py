@@ -28,8 +28,14 @@ class IssueAnalysis(BaseModel):
 
 class PlanDecision(BaseModel):
     """Plan决策"""
-
     next_node: Literal[
-        "issue_insight", "code_retriever", "code_scope", "patch_smith", "verify", "END"
+        "issue_insight",
+        "code_retriever",
+        "entry_selector",
+        "context_assembler",
+        "patch_generator",
+        "impact_analyzer",
+        "verify",
+        "END"
     ] = Field(..., description="下一步执行节点")
     reason: str = Field(..., description="路由决策原因")

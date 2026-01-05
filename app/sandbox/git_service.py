@@ -140,6 +140,27 @@ class GitService:
         """
         logger.info(f"沙箱 {self._sandbox_id}: 克隆仓库 {repo_url}, 分支 {branch}")
 
+        # 1. 提前确定仓库路径
+        if target_dir:
+            repo_path = target_dir
+        else:
+            # 从 URL 提取仓库名
+            repo_name = repo_url.rstrip("/").split("/")[-1]
+            if repo_name.endswith(".git"):
+                repo_name = repo_name[:-4]
+            repo_path = repo_name
+
+        # 2. 检查目录是否存在，如果存在则清理
+        # 避免 "destination path already exists" 错误
+        check_result = await self._execute(
+            f'test -d "{repo_path}" && echo "exists"',
+            check=False,
+        )
+
+        if "exists" in check_result.stdout:
+            logger.info(f"沙箱 {self._sandbox_id}: 目录 {repo_path} 已存在，正在清理...")
+            await self._execute(f'rm -rf "{repo_path}"', check=False)
+
         # 获取沙箱的 git_auth 配置
         sandbox = await self._manager.get_sandbox(self._sandbox_id)
         effective_auth = git_auth or sandbox.config.git_auth
@@ -176,16 +197,6 @@ class GitService:
                         "Git 认证失败，请检查 SSH Key 或 Token", self._sandbox_id
                     )
                 raise GitCloneError(repo_url, result.stderr, self._sandbox_id)
-
-            # 确定仓库路径
-            if target_dir:
-                repo_path = target_dir
-            else:
-                # 从 URL 提取仓库名
-                repo_name = repo_url.rstrip("/").split("/")[-1]
-                if repo_name.endswith(".git"):
-                    repo_name = repo_name[:-4]
-                repo_path = repo_name
 
             # 获取当前 commit hash
             commit_result = await self._execute(

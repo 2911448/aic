@@ -1,14 +1,17 @@
 """
 LangGraph Workflow for Issue Processing with Command-based dynamic routing
+支持迭代式上下文构建和影响扩散控制
 """
 
 from langgraph.graph import StateGraph
 
 from app.core.logger_config import logger
 from app.graph.nodes.code_retriever_agent_node import CodeRetrieverAgentNode
-from app.graph.nodes.code_scope_agent_node import CodeScopeAgentNode
+from app.graph.nodes.context_assembler_agent_node import ContextAssemblerAgentNode
+from app.graph.nodes.entry_selector_agent_node import EntrySelectorAgentNode
+from app.graph.nodes.impact_analyzer_agent_node import ImpactAnalyzerAgentNode
 from app.graph.nodes.issue_insight_agent_node import IssueInsightAgentNode
-from app.graph.nodes.patch_smith_agent_node import PatchSmithAgentNode
+from app.graph.nodes.patch_generator_agent_node import PatchGeneratorAgentNode
 from app.graph.nodes.plan_node import PlanAgentNode
 from app.graph.nodes.verify_agent_node import VerifyAgentNode
 from app.graph.state import IssueProcessState, NodeName
@@ -20,21 +23,29 @@ def create_issue_workflow():
 
     工作流程:
     1. START → plan (中央调度器)
-    2. plan → issue_insight/code_retriever/code_scope/patch_smith/verify (根据状态决定)
-    3. 工作节点 → plan (完成后返回plan)
-    4. plan → END (任务完成)
+    2. plan → issue_insight → plan (Issue语义理解)
+    3. plan → code_retriever → plan (代码检索)
+    4. plan → entry_selector → plan (切入点选择)
+    5. plan → context_assembler → plan (上下文组装)
+    6. plan → patch_generator → plan (补丁生成)
+    7. plan → impact_analyzer → plan (影响分析)
+    8. 如果需要扩散：plan → context_assembler (迭代)
+    9. plan → verify → plan (验证)
+    10. plan → END (任务完成)
 
     Returns:
         Compiled workflow graph
     """
-    logger.info("创建Issue处理工作流")
+    logger.info("创建Issue处理工作流（迭代式上下文构建）")
 
     # 创建节点实例
     plan_node = PlanAgentNode()
     issue_insight_node = IssueInsightAgentNode()
     code_retriever_node = CodeRetrieverAgentNode()
-    code_scope_node = CodeScopeAgentNode()
-    patch_smith_node = PatchSmithAgentNode()
+    entry_selector_node = EntrySelectorAgentNode()
+    context_assembler_node = ContextAssemblerAgentNode()
+    patch_generator_node = PatchGeneratorAgentNode()
+    impact_analyzer_node = ImpactAnalyzerAgentNode()
     verify_node = VerifyAgentNode()
 
     # 创建状态图
@@ -44,8 +55,10 @@ def create_issue_workflow():
     graph.add_node(NodeName.PLAN.value, plan_node)
     graph.add_node(NodeName.ISSUE_INSIGHT.value, issue_insight_node)
     graph.add_node(NodeName.CODE_RETRIEVER.value, code_retriever_node)
-    graph.add_node(NodeName.CODE_SCOPE.value, code_scope_node)
-    graph.add_node(NodeName.PATCH_SMITH.value, patch_smith_node)
+    graph.add_node(NodeName.ENTRY_SELECTOR.value, entry_selector_node)
+    graph.add_node(NodeName.CONTEXT_ASSEMBLER.value, context_assembler_node)
+    graph.add_node(NodeName.PATCH_GENERATOR.value, patch_generator_node)
+    graph.add_node(NodeName.IMPACT_ANALYZER.value, impact_analyzer_node)
     graph.add_node(NodeName.VERIFY.value, verify_node)
 
     # 设置入口点：START → plan
@@ -55,13 +68,3 @@ def create_issue_workflow():
 
     return graph.compile()
 
-
-# Backward compatibility: keep old function name
-def create_chat_graph():
-    """
-    创建聊天工作流图（已废弃，使用create_issue_workflow）
-
-    为了向后兼容保留此函数
-    """
-    logger.warning("create_chat_graph已废弃，请使用create_issue_workflow")
-    return create_issue_workflow()

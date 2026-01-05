@@ -1,6 +1,7 @@
 """
 Plan Node - 中央路由协调器
 分析当前状态，决定下一步执行哪个节点
+支持迭代式上下文构建和影响扩散控制
 """
 
 from typing import Literal
@@ -30,8 +31,10 @@ class PlanAgentNode:
         Literal[
             NodeName.ISSUE_INSIGHT.value,
             NodeName.CODE_RETRIEVER.value,
-            NodeName.CODE_SCOPE.value,
-            NodeName.PATCH_SMITH.value,
+            NodeName.ENTRY_SELECTOR.value,
+            NodeName.CONTEXT_ASSEMBLER.value,
+            NodeName.PATCH_GENERATOR.value,
+            NodeName.IMPACT_ANALYZER.value,
             NodeName.VERIFY.value,
             NodeName.END.value,
         ]
@@ -100,6 +103,13 @@ class PlanAgentNode:
             logger.error(f"检测到错误: {error_msg}，结束流程")
             return NodeName.END.value
 
+        # 提取扩散控制信息
+        impact_report = state.get("impact_report")
+        current_target = state.get("current_target")
+        target_queue = state.get("target_queue", [])
+        current_depth = state.get("current_expansion_depth", 0)
+        max_depth = state.get("max_expansion_depth", 3)
+
         llm = await get_gpt_model()
 
         prompt = self.prompt_manager.render(
@@ -110,8 +120,15 @@ class PlanAgentNode:
             error=state.get("error"),
             search_queries=state.get("search_queries", []),
             retrieved_code=state.get("retrieved_code", []),
-            code_scope=state.get("code_scope"),
-            patch=state.get("patch"),
+            # 新增字段
+            current_target=current_target,
+            target_queue_size=len(target_queue),
+            editable_context=state.get("editable_context"),
+            generated_patches=state.get("generated_patches", {}),
+            current_patch=state.get("current_patch"),
+            impact_report=impact_report,
+            current_expansion_depth=current_depth,
+            max_expansion_depth=max_depth,
             verification_result=state.get("verification_result"),
         )
 
@@ -131,8 +148,11 @@ class PlanAgentNode:
         node_mapping = {
             "issue_insight": NodeName.ISSUE_INSIGHT.value,
             "code_retriever": NodeName.CODE_RETRIEVER.value,
-            "code_scope": NodeName.CODE_SCOPE.value,
-            "patch_smith": NodeName.PATCH_SMITH.value,
+            # 新节点
+            "entry_selector": NodeName.ENTRY_SELECTOR.value,
+            "context_assembler": NodeName.CONTEXT_ASSEMBLER.value,
+            "patch_generator": NodeName.PATCH_GENERATOR.value,
+            "impact_analyzer": NodeName.IMPACT_ANALYZER.value,
             "verify": NodeName.VERIFY.value,
         }
 
