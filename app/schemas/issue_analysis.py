@@ -22,7 +22,7 @@ class IssueAnalysis(BaseModel):
 
     issue_type: Literal["bug", "feature"] = Field(..., description="Issue类型")
     search_queries: list[SearchQuery] = Field(
-        ..., min_length=3, max_length=7, description="RAG搜索查询"
+        ..., min_length=3, max_length=10, description="RAG搜索查询"
     )
 
 

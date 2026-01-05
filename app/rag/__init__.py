@@ -4,6 +4,7 @@ RAG (Retrieval-Augmented Generation) 模块
 """
 
 from app.rag.embedding import embedding_service, BailianEmbeddingService
+from app.rag.rerank import rerank_service, BailianRerankService
 from app.rag.code_parser import CodeParser, PythonCodeParser, GenericCodeParser
 from app.rag.indexer import code_indexer, CodeIndexer
 from app.rag.chunking import code_chunker, CodeChunker
@@ -11,6 +12,8 @@ from app.rag.chunking import code_chunker, CodeChunker
 __all__ = [
     "embedding_service",
     "BailianEmbeddingService",
+    "rerank_service",
+    "BailianRerankService",
     "CodeParser",
     "PythonCodeParser",
     "GenericCodeParser",

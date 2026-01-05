@@ -366,6 +366,7 @@ class MilvusService:
                 limit=top_k,
                 filter=filter_expr,
                 output_fields=output_fields,
+                anns_field="embedding",  # 指定使用代码向量字段
             )
 
             # 格式化结果

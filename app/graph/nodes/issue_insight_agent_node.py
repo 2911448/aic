@@ -30,12 +30,6 @@ class IssueInsightAgentNode:
         """
         执行Issue分析并生成RAG搜索查询
 
-        执行步骤:
-        1. 分析Issue并判断类型（bug/feature）
-        2. 生成3-7个RAG搜索查询
-
-        完成后返回Plan节点进行下一步决策
-
         Args:
             state: 当前工作流状态
 
