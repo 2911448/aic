@@ -36,6 +36,8 @@ class PlanAgentNode:
             NodeName.PATCH_GENERATOR.value,
             NodeName.IMPACT_ANALYZER.value,
             NodeName.VERIFY.value,
+            NodeName.REFINE.value,
+            NodeName.REVIEWER.value,
             NodeName.END.value,
         ]
     ]:
@@ -85,15 +87,8 @@ class PlanAgentNode:
         Returns:
             下一个节点名称
         """
-        current_step = state.get("current_step", "unknown")
-        executed_nodes = state.get("executed_nodes", [])
+        logger.info("Plan节点启动 - 分析当前状态并决策下一步")
 
-        logger.info(
-            f"Plan节点启动 | 当前步骤: {current_step} | "
-            f"已执行: {', '.join(executed_nodes) if executed_nodes else 'None'}"
-        )
-
-        # Check for completion or error conditions
         if state.get("completed"):
             logger.info("任务已完成，结束流程")
             return NodeName.END.value
@@ -114,22 +109,21 @@ class PlanAgentNode:
 
         prompt = self.prompt_manager.render(
             "plan_decision",
-            current_step=current_step,
-            executed_nodes=executed_nodes,
             issue_type=state.get("issue_type"),
             error=state.get("error"),
             search_queries=state.get("search_queries", []),
             retrieved_code=state.get("retrieved_code", []),
-            # 新增字段
             current_target=current_target,
             target_queue_size=len(target_queue),
             editable_context=state.get("editable_context"),
-            generated_patches=state.get("generated_patches", {}),
             current_patch=state.get("current_patch"),
             impact_report=impact_report,
             current_expansion_depth=current_depth,
             max_expansion_depth=max_depth,
             verification_result=state.get("verification_result"),
+            patch_retry_count=state.get("patch_retry_count", 0),
+            diagnosis_result=state.get("diagnosis_result"),
+            review_report=state.get("review_report"),
         )
 
         response = await llm.ainvoke(prompt)
@@ -153,7 +147,10 @@ class PlanAgentNode:
             "context_assembler": NodeName.CONTEXT_ASSEMBLER.value,
             "patch_generator": NodeName.PATCH_GENERATOR.value,
             "impact_analyzer": NodeName.IMPACT_ANALYZER.value,
+            # 验证与评审节点
             "verify": NodeName.VERIFY.value,
+            "refine": NodeName.REFINE.value,
+            "reviewer": NodeName.REVIEWER.value,
         }
 
         return node_mapping.get(decision.next_node, NodeName.END.value)

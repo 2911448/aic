@@ -108,6 +108,7 @@ class PatchGeneratorAgentNode:
                 {
                     "generated_patches": existing_patches,
                     "current_patch": patch_result.unified_diff,
+                    "current_modified_code": patch_result.modified_code,
                     "current_target": current_target_dict,
                     "executed_nodes": [
                         *state.get("executed_nodes", []),
@@ -182,11 +183,8 @@ class PatchGeneratorAgentNode:
                 context
             )
 
-            # 调用 LLM
             llm = await get_gpt_model(temperature=0.2)
             response = await llm.ainvoke(prompt)
-
-            # 解析响应
             result = parse_json_response(response.content)
 
             modified_code = result.get("modified_code", "")

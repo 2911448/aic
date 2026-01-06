@@ -75,7 +75,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 
 ```json
 {
-  "modified_code": "修改后的完整代码（替换 editable 区域）",
+  "modified_code": "修改后的完整代码",
   "change_summary": "修改摘要，简述做了什么改动",
   "confidence": 0.85
 }
@@ -87,8 +87,6 @@ CURRENT_TIME: {{ CURRENT_TIME }}
   - 必须是完整的、可运行的代码
   - 保持原有的缩进和风格
   - 不要包含 ```python``` 标记
-- **change_summary**: 简要描述修改内容（50字以内）
-- **confidence**: 对这次修改的置信度（0.0-1.0）
 
 ---
 
@@ -111,54 +109,10 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 
 ---
 
-## 示例
-
-### 示例1：修复返回值
-
-**Issue**: "函数应该返回列表而非元组"
-
-**原始代码**:
-```python
-def get_items(self) -> tuple:
-    items = self._fetch_items()
-    return tuple(items)
-```
-
-**输出**:
-```json
-{
-  "modified_code": "def get_items(self) -> list:\n    items = self._fetch_items()\n    return list(items)",
-  "change_summary": "将返回类型从tuple改为list",
-  "confidence": 0.95
-}
-```
-
-### 示例2：添加参数验证
-
-**Issue**: "需要对输入参数进行空值检查"
-
-**原始代码**:
-```python
-def process_data(self, data: dict) -> dict:
-    result = self._transform(data)
-    return result
-```
-
-**输出**:
-```json
-{
-  "modified_code": "def process_data(self, data: dict) -> dict:\n    if data is None:\n        raise ValueError(\"data cannot be None\")\n    result = self._transform(data)\n    return result",
-  "change_summary": "添加data参数的空值检查",
-  "confidence": 0.9
-}
-```
-
----
-
 ## 注意事项
 
 1. **只修改 editable 区域**: 不要引用或修改 readonly 区域的代码
 2. **完整输出**: modified_code 必须包含完整的修改后代码
 3. **保持格式**: 注意换行符 `\n` 和正确的缩进
-4. **JSON 转义**: 代码中的引号等特殊字符需要正确转义
+4. **输出检查**: 输出必须是可解析的 JSON 对象
 

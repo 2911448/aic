@@ -36,6 +36,8 @@ class PlanDecision(BaseModel):
         "patch_generator",
         "impact_analyzer",
         "verify",
+        "refine",
+        "reviewer",
         "END"
     ] = Field(..., description="下一步执行节点")
     reason: str = Field(..., description="路由决策原因")

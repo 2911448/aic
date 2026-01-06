@@ -10,6 +10,7 @@ from app.core.logger_config import logger
 
 from app.config.app_config import app_config
 from app.schemas.webhook import GitLabWebhookPayload, WebhookResponse
+from app.sandbox.manager import get_sandbox_manager
 
 
 class WebhookService:
@@ -122,6 +123,7 @@ class WebhookService:
 
         logger.info(f"启动 AI Agent 工作流处理 Issue #{issue_iid}")
 
+        result = {}  # 初始化 result，以便在 finally 中访问
         try:
             from app.graph.workflow import create_issue_workflow
             from app.graph.state import IssueProcessState
@@ -186,6 +188,16 @@ class WebhookService:
                 issue_title=issue.get("title"),
                 project_path=project.path_with_namespace,
             )
+        finally:
+            # 清理 Sandbox 资源
+            sandbox_id = result.get("sandbox_id")
+            if sandbox_id:
+                try:
+                    logger.info(f"正在销毁沙箱: {sandbox_id}")
+                    sandbox_manager = get_sandbox_manager()
+                    await sandbox_manager.destroy_sandbox(sandbox_id)
+                except Exception as cleanup_error:
+                    logger.warning(f"沙箱 {sandbox_id} 销毁失败: {cleanup_error}")
 
     async def _process_note_event(
         self,

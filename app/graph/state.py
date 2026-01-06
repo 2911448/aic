@@ -29,8 +29,10 @@ class NodeName(str, Enum):
     CONTEXT_ASSEMBLER = "context_assembler"
     PATCH_GENERATOR = "patch_generator"
     IMPACT_ANALYZER = "impact_analyzer"
-    # 保留验证节点
+    # 验证与评审节点
     VERIFY = "verify"
+    REFINE = "refine"
+    REVIEWER = "reviewer"
     END = "__end__"
 
 
@@ -44,6 +46,8 @@ class ProcessStage(str, Enum):
     PATCH_GENERATION = "patch_generation"
     IMPACT_ANALYSIS = "impact_analysis"
     VERIFICATION = "verification"
+    DIAGNOSIS = "diagnosis"
+    REVIEW = "review"
     THINK_CHAIN = "think_chain"
 
 
@@ -69,26 +73,35 @@ class IssueProcessState(TypedDict, total=False):
     # Code Retrieval Results
     retrieved_code: list[dict]  # RAG retrieved code snippets
 
-    # Entry Selection Results (新增)
+    # Entry Selection Results
     current_target: Optional[dict]  # 当前聚焦的目标符号 (TargetContext)
     target_queue: list[dict]  # 待处理的符号队列 (list[TargetContext])
 
-    # Context Assembly Results (新增)
+    # Context Assembly Results
     editable_context: Optional[dict]  # 可编辑上下文切片 (EditableContextSlice)
 
-    # Patch Generation Results (更新)
+    # Patch Generation Results
     generated_patches: dict[str, str]  # 已生成的补丁 {file_path: patch_content}
-    current_patch: Optional[str]  # 当前生成的补丁
+    current_patch: Optional[str]  # 当前生成的补丁 (unified diff)
+    current_modified_code: Optional[str]  # 当前补丁对应的修改后的完整代码
 
-    # Impact Analysis Results (新增)
+    # Impact Analysis Results
     impact_report: Optional[dict]  # 影响分析报告 (ImpactReport)
 
-    # Expansion Control (新增)
+    # Expansion Control
     max_expansion_depth: int  # 最大扩散深度，默认3
     current_expansion_depth: int  # 当前扩散深度
 
     # Verification Results
-    verification_result: Optional[dict]  # Sandbox verification result
+    verification_result: Optional[dict]  # Verification result (syntax, linter, semantic)
+    
+    # Diagnosis & Retry Control
+    patch_retry_count: int  # 补丁重试次数
+    retry_history: list[dict]  # 重试历史记录
+    diagnosis_result: Optional[dict]  # 失败诊断结果 (DiagnosisResult)
+    
+    # Review Results
+    review_report: Optional[str]  # Markdown 格式的评审报告
 
     # Execution Metadata
     executed_nodes: list[str]  # History of executed nodes for tracking
@@ -96,8 +109,6 @@ class IssueProcessState(TypedDict, total=False):
     error: Optional[str]  # Error message if any
     completed: bool  # Whether the workflow is completed
 
-    # Session Info
-    session_id: Optional[str]  # Session identifier
-    sandbox_id: Optional[str]  # Sandbox identifier for file operations
+    # Sandbox Inf
+    sandbox_id: Optional[str]  # Sandbox ID
     repo_path: Optional[str]  # Git repository path in sandbox (e.g., "project-name")
-    timestamp: Optional[str]  # Timestamp

@@ -116,7 +116,6 @@ class ContextAssemblerAgentNode:
                 sb_config = SandboxConfig(git_auth=git_auth)
                 sandbox = await self.sandbox_manager.create_sandbox(config=sb_config)
                 update_dict["sandbox_id"] = sandbox.id
-                logger.info(f"沙箱创建成功: {sandbox.id}")
 
                 # 3. 拉取代码 (新增步骤)
                 project_info = state.get("project_info", {})
@@ -124,7 +123,6 @@ class ContextAssemblerAgentNode:
                 default_branch = project_info.get("default_branch", "main")
                 
                 if repo_url:
-                    logger.info(f"正在克隆代码仓库: {repo_url}")
                     try:
                         # 创建 GitService 实例
                         git_service = GitService(self.sandbox_manager, sandbox.id)
@@ -135,7 +133,6 @@ class ContextAssemblerAgentNode:
                         # 保存仓库路径到 update_dict，供后续使用
                         update_dict["repo_path"] = clone_result.repo_path
                         repo_path = clone_result.repo_path
-                        logger.info(f"代码克隆成功: {clone_result.repo_path}, commit={clone_result.commit_hash[:8] if clone_result.commit_hash else 'unknown'}")
                     except Exception as e:
                         logger.error(f"代码克隆失败: {e}")
                         update_dict.update(
@@ -193,8 +190,7 @@ class ContextAssemblerAgentNode:
             )
 
             logger.info(
-                f"上下文组装完成: {current_target.symbol_name}, "
-                f"预估 {context_slice.estimated_tokens} tokens"
+                f"上下文组装完成: {current_target.symbol_name} "
             )
 
             # 发送完成事件

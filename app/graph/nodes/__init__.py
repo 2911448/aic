@@ -10,6 +10,8 @@ from app.graph.nodes.impact_analyzer_agent_node import ImpactAnalyzerAgentNode
 from app.graph.nodes.issue_insight_agent_node import IssueInsightAgentNode
 from app.graph.nodes.patch_generator_agent_node import PatchGeneratorAgentNode
 from app.graph.nodes.plan_node import PlanAgentNode
+from app.graph.nodes.refine_agent_node import RefineAgentNode
+from app.graph.nodes.reviewer_agent_node import ReviewerAgentNode
 from app.graph.nodes.verify_agent_node import VerifyAgentNode
 
 __all__ = [
@@ -20,5 +22,7 @@ __all__ = [
     "IssueInsightAgentNode",
     "PatchGeneratorAgentNode",
     "PlanAgentNode",
+    "RefineAgentNode",
+    "ReviewerAgentNode",
     "VerifyAgentNode",
 ]

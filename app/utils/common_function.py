@@ -17,6 +17,11 @@ def parse_json_response(text: str) -> dict:
     Returns:
         解析后的JSON字典
     """
+    # 前置检查：响应是否为空
+    if not text or not text.strip():
+        logger.error("收到空的LLM响应")
+        raise ValueError("LLM响应为空，无法解析JSON")
+    
     if "```json" in text:
         start = text.find("```json") + 7
         end = text.find("```", start)
