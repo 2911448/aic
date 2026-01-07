@@ -64,6 +64,7 @@ class IssueInsightAgentNode:
             update_dict.update(
                 {
                     "issue_type": analysis.issue_type,
+                    "branch_name_suggestion": analysis.branch_name_suggestion,
                     "search_queries": search_queries,
                     "executed_nodes": [
                         *state.get("executed_nodes", []),
@@ -75,6 +76,7 @@ class IssueInsightAgentNode:
 
             logger.info(
                 f"Issue Insight完成: 类型={analysis.issue_type}, "
+                f"分支名={analysis.branch_name_suggestion}, "
                 f"生成{len(search_queries)}个搜索查询"
             )
 

@@ -56,16 +56,6 @@
             "message": "具体的问题描述",
             "suggestion": "修复建议"
         }
-    ],
-    "reasoning": "整体的分析推理过程",
-    "semantic_regression": {
-        "has_regression": false,
-        "affected_areas": [],
-        "explanation": "是否存在语义回归的说明"
-    },
-    "recommendations": [
-        "建议1",
-        "建议2"
     ]
 }
 ```

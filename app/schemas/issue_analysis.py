@@ -21,6 +21,11 @@ class IssueAnalysis(BaseModel):
     """Issue分析结果 - 只包含核心信息"""
 
     issue_type: Literal["bug", "feature"] = Field(..., description="Issue类型")
+    branch_name_suggestion: str = Field(
+        ..., 
+        description="建议的分支名（简短、语义化，如 fix/user-login, feat/export-excel）",
+        max_length=30
+    )
     search_queries: list[SearchQuery] = Field(
         ..., min_length=3, max_length=10, description="RAG搜索查询"
     )
@@ -38,6 +43,7 @@ class PlanDecision(BaseModel):
         "verify",
         "refine",
         "reviewer",
+        "mr_submitter",
         "END"
     ] = Field(..., description="下一步执行节点")
     reason: str = Field(..., description="路由决策原因")

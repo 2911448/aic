@@ -79,8 +79,15 @@ class PatchGeneratorAgentNode:
 
             editable_context = EditableContextSlice(**editable_context_dict)
 
-            # 生成补丁
-            patch_result = await self._generate_patch(state, editable_context)
+            # 生成补丁（携带重试上下文）
+            patch_result = await self._generate_patch(
+                state, 
+                editable_context,
+                diagnosis_result=state.get("diagnosis_result"),
+                verification_result=state.get("verification_result"),
+                previous_patch=state.get("current_patch"),  # 传 Diff 而非完整代码
+                patch_retry_count=state.get("patch_retry_count", 0),
+            )
 
             if patch_result is None:
                 logger.error("无法生成补丁")
@@ -104,12 +111,20 @@ class PatchGeneratorAgentNode:
             current_target_dict = state.get("current_target", {})
             current_target_dict["status"] = TargetStatus.COMPLETED.value
 
+            # 生成新补丁后，清理所有基于旧补丁的下游状态（防止 Plan 路由错误）
             update_dict.update(
                 {
                     "generated_patches": existing_patches,
                     "current_patch": patch_result.unified_diff,
                     "current_modified_code": patch_result.modified_code,
                     "current_target": current_target_dict,
+                    # 清理下游状态，强制重新走完整流程
+                    "impact_report": None,
+                    "verification_result": None,
+                    "diagnosis_result": None,
+                    "review_report": None,
+                    "mr_url": None,
+                    "mr_iid": None,
                     "executed_nodes": [
                         *state.get("executed_nodes", []),
                         NodeName.PATCH_GENERATOR.value,
@@ -159,7 +174,11 @@ class PatchGeneratorAgentNode:
     async def _generate_patch(
         self,
         state: IssueProcessState,
-        context: EditableContextSlice
+        context: EditableContextSlice,
+        diagnosis_result: Optional[dict] = None,
+        verification_result: Optional[dict] = None,
+        previous_patch: Optional[str] = None,  # Unified Diff 而非完整代码
+        patch_retry_count: int = 0,
     ) -> Optional[PatchResult]:
         """
         生成补丁
@@ -176,11 +195,15 @@ class PatchGeneratorAgentNode:
         issue_description = issue_data.get("description", "")
 
         try:
-            # 构建 Prompt
+            # 构建 Prompt（重试时携带诊断建议）
             prompt = self._build_patch_prompt(
                 issue_title,
                 issue_description,
-                context
+                context,
+                diagnosis_result=diagnosis_result,
+                verification_result=verification_result,
+                previous_patch=previous_patch,  # 传 Diff
+                patch_retry_count=patch_retry_count,
             )
 
             llm = await get_gpt_model(temperature=0.2)
@@ -216,7 +239,11 @@ class PatchGeneratorAgentNode:
         self,
         issue_title: str,
         issue_description: str,
-        context: EditableContextSlice
+        context: EditableContextSlice,
+        diagnosis_result: Optional[dict] = None,
+        verification_result: Optional[dict] = None,
+        previous_patch: Optional[str] = None,  # Unified Diff
+        patch_retry_count: int = 0,
     ) -> str:
         """
         构建补丁生成 Prompt
@@ -243,7 +270,7 @@ class PatchGeneratorAgentNode:
         # 格式化 Schema
         schemas_str = "\n\n".join(context.schema_definitions) if context.schema_definitions else "无"
 
-        # 渲染 Prompt
+        # 渲染 Prompt（重试时注入诊断反馈）
         prompt = self.prompt_manager.render(
             "patch_generation",
             issue_title=issue_title,
@@ -257,6 +284,11 @@ class PatchGeneratorAgentNode:
             dependency_signatures=deps_str or "无依赖",
             imports=imports_str,
             schema_definitions=schemas_str,
+            # 重试反馈参数（传 Diff 而非完整代码，节省 Token）
+            diagnosis_result=diagnosis_result,
+            verification_result=verification_result,
+            previous_patch=previous_patch,
+            patch_retry_count=patch_retry_count,
         )
 
         return prompt
@@ -278,22 +310,27 @@ class PatchGeneratorAgentNode:
         Returns:
             Unified diff 字符串
         """
-        original_lines = original.splitlines(keepends=True)
-        modified_lines = modified.splitlines(keepends=True)
+        original_lines = [line + '\n' for line in original.splitlines()]
+        modified_lines = [line + '\n' for line in modified.splitlines()]
 
-        # 确保最后一行有换行符
-        if original_lines and not original_lines[-1].endswith("\n"):
-            original_lines[-1] += "\n"
-        if modified_lines and not modified_lines[-1].endswith("\n"):
-            modified_lines[-1] += "\n"
-
+        # 生成 unified diff
         diff = difflib.unified_diff(
             original_lines,
             modified_lines,
             fromfile=f"a/{file_path}",
             tofile=f"b/{file_path}",
-            lineterm=""
         )
 
-        return "".join(diff)
+        diff_text = "".join(diff)
+        
+        # 确保 diff 不为空
+        if not diff_text:
+            logger.warning(f"生成的 diff 为空: {file_path}")
+            return ""
+        
+        # 验证 diff 格式（至少要有 --- 和 +++ 行）
+        if not ("---" in diff_text and "+++" in diff_text):
+            logger.warning(f"生成的 diff 格式可能不正确: {file_path}")
+        
+        return diff_text
 

@@ -38,6 +38,7 @@ class PlanAgentNode:
             NodeName.VERIFY.value,
             NodeName.REFINE.value,
             NodeName.REVIEWER.value,
+            NodeName.MR_SUBMITTER.value,
             NodeName.END.value,
         ]
     ]:
@@ -124,6 +125,7 @@ class PlanAgentNode:
             patch_retry_count=state.get("patch_retry_count", 0),
             diagnosis_result=state.get("diagnosis_result"),
             review_report=state.get("review_report"),
+            mr_url=state.get("mr_url"),
         )
 
         response = await llm.ainvoke(prompt)
@@ -151,6 +153,8 @@ class PlanAgentNode:
             "verify": NodeName.VERIFY.value,
             "refine": NodeName.REFINE.value,
             "reviewer": NodeName.REVIEWER.value,
+            # MR 提交节点
+            "mr_submitter": NodeName.MR_SUBMITTER.value,
         }
 
         return node_mapping.get(decision.next_node, NodeName.END.value)

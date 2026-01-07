@@ -392,7 +392,7 @@ class GitService:
         Returns:
             提交的 commit hash
         """
-        logger.info(f"沙箱 {self._sandbox_id}: 提交变更: {message[:50]}...")
+        logger.info(f"沙箱 {self._sandbox_id}: 开始提交变更")
 
         # 如果指定了文件，先 add
         if files or all_files:
@@ -761,3 +761,47 @@ class GitService:
 
         result = await self._execute(command, timeout=30)
         return result
+
+    async def apply_patch(
+        self,
+        patch_content: str,
+        repo_path: str = ".",
+    ) -> None:
+        """
+        应用补丁
+
+        Args:
+            patch_content: unified diff 格式的补丁内容
+            repo_path: 仓库路径
+
+        Raises:
+            GitError: 补丁应用失败
+        """
+        logger.info(f"沙箱 {self._sandbox_id}: 开始应用补丁")
+
+        # 创建临时补丁文件
+        patch_file = f"/tmp/patch_{self._sandbox_id}.diff"
+        
+        # 写入补丁内容（转义特殊字符）
+        write_cmd = f"cat > {patch_file} << 'EOF'\n{patch_content}\nEOF"
+        
+        await self._execute(write_cmd, timeout=10)
+
+        # 应用补丁
+        apply_cmd = f"cd {repo_path} && git apply {patch_file}"
+        
+        try:
+            result = await self._execute(apply_cmd, timeout=60, check=False)
+            
+            if not result.success:
+                raise GitError(
+                    f"补丁应用失败: {result.stderr}",
+                    self._sandbox_id,
+                    apply_cmd,
+                )
+            
+            logger.info(f"沙箱 {self._sandbox_id}: 补丁应用成功")
+            
+        finally:
+            # 清理临时文件
+            await self._execute(f"rm -f {patch_file}", timeout=10, check=False)

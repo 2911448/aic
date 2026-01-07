@@ -9,7 +9,7 @@ from app.core.logger_config import logger
 
 def parse_json_response(text: str) -> dict:
     """
-    解析JSON
+    解析JSON，优先尝试直接解析，失败后再提取markdown代码块
 
     Args:
         text: LLM响应文本，可能包含JSON wrapped in markdown
@@ -17,23 +17,29 @@ def parse_json_response(text: str) -> dict:
     Returns:
         解析后的JSON字典
     """
-    # 前置检查：响应是否为空
     if not text or not text.strip():
         logger.error("收到空的LLM响应")
         raise ValueError("LLM响应为空，无法解析JSON")
     
-    if "```json" in text:
-        start = text.find("```json") + 7
-        end = text.find("```", start)
-        if end != -1:
-            text = text[start:end].strip()
-    elif "```" in text:
-        start = text.find("```") + 3
-        end = text.find("```", start)
-        if end != -1:
-            text = text[start:end].strip()
-
     text = text.strip()
+    
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    if text.startswith("```json"):
+        start = text.find("\n", 7) 
+        if start != -1 and text.rstrip().endswith("```"):
+            end = text.rstrip().rfind("```")
+            if end > start:
+                text = text[start+1:end].strip()
+    elif text.startswith("```"):
+        start = text.find("\n", 3) 
+        if start != -1 and text.rstrip().endswith("```"):
+            end = text.rstrip().rfind("```")
+            if end > start:
+                text = text[start+1:end].strip()
 
     try:
         return json.loads(text)

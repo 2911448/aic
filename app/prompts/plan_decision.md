@@ -21,6 +21,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 - **代码验证**: {{ verification_result.get('status', '未执行') if verification_result else '未执行' }} {% if verification_result and verification_result.get('status') == 'fail' %}(置信度: {{ verification_result.get('confidence', 0.0) }}){% endif %}
 - **失败诊断**: {{ diagnosis_result.get('decision', '无') if diagnosis_result else '无' }} {% if patch_retry_count > 0 %}(已重试 {{ patch_retry_count }} 次){% endif %}
 - **评审报告**: {{ '已生成' if review_report else '未生成' }}
+- **MR 提交**: {{ '已提交' if mr_url else '未提交' }}
 
 ---
 
@@ -69,15 +70,19 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 - **决策**: `refine`
 
 ### 规则 10：诊断建议重试
-- **条件**: `diagnosis_result.decision` 为 `retry` 且 `patch_retry_count < 3`
+- **条件**: `verification_result.status` 为 `fail` 且 `diagnosis_result.decision` 为 `retry` 且 `patch_retry_count < 3`
 - **决策**: `patch_generator` (重新生成补丁)
 
 ### 规则 11：验证通过生成评审
 - **条件**: `verification_result.status` 为 `pass` 且 `review_report` 为 `None`
 - **决策**: `reviewer`
 
-### 规则 12：流程完成
-- **条件**: `review_report` 存在 或 (验证失败且无法重试)
+### 规则 12：评审完成提交 MR
+- **条件**: `review_report` 存在 且 `mr_url` 为 `None`
+- **决策**: `mr_submitter`
+
+### 规则 13：流程完成
+- **条件**: `mr_url` 存在 或 (验证失败且无法重试)
 - **决策**: `END`
 
 ---
@@ -93,7 +98,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 }
 ```
 
-**有效节点名称**: `issue_insight` | `code_retriever` | `entry_selector` | `context_assembler` | `patch_generator` | `impact_analyzer` | `verify` | `refine` | `reviewer` | `END`
+**有效节点名称**: `issue_insight` | `code_retriever` | `entry_selector` | `context_assembler` | `patch_generator` | `impact_analyzer` | `verify` | `refine` | `reviewer` | `mr_submitter` | `END`
 
 ---
 

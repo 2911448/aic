@@ -147,7 +147,10 @@ class WebhookService:
 
             # 创建并执行工作流
             workflow = create_issue_workflow()
-            result = await workflow.ainvoke(initial_state)
+            result = await workflow.ainvoke(
+                initial_state,
+                config={"recursion_limit": 50}
+            )
 
             # 检查执行结果
             executed_nodes = result.get("executed_nodes", [])

@@ -27,7 +27,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 
 ## 任务说明
 
-你需要按顺序完成两个任务：
+你需要按顺序完成三个任务：
 
 ### 任务1：理解 Issue 并判断类型（仅在内部完成，不要输出分析过程）
 
@@ -40,7 +40,17 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 - **bug**: 现有功能异常、行为不符合预期、报错、崩溃、边界条件等问题
 - **feature**: 新功能、能力增强、行为扩展、之前不存在的能力
 
-### 任务2：生成用于 RAG 的代码搜索查询（核心任务）
+### 任务2：生成语义化的分支名建议
+
+基于对 Issue 的理解，生成一个简短、语义化的分支名建议：
+- **格式要求**: 使用小写字母和连字符，如 `fix/user-login`、`feat/export-excel`
+- **长度限制**: 最多 30 个字符
+- **命名规范**: 
+  - bug 类型推荐格式: `fix/<简短描述>`
+  - feature 类型推荐格式: `feat/<简短描述>`
+- **语义要求**: 应该能让人一眼看出这个分支要解决什么问题或实现什么功能
+
+### 任务3：生成用于 RAG 的代码搜索查询（核心任务）
 
 生成 **5–10个高质量搜索查询**，用于在代码库中定位：
 - 需要修复的代码（bug）
@@ -91,6 +101,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 ```json
 {
   "issue_type": "bug/feature",
+  "branch_name_suggestion": "fix/<简短描述> 或 feat/<简短描述>",
   "search_queries": [
     {
       "query": "子查询1",
@@ -123,6 +134,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 ```json
 {
   "issue_type": "bug",
+  "branch_name_suggestion": "fix/page-size-error",
   "search_queries": [
     {
       "query": "get_user_list",
@@ -163,6 +175,7 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 ```json
 {
   "issue_type": "feature",
+  "branch_name_suggestion": "feat/task-sort-by-time",
   "search_queries": [
     {
       "query": "get_task_list",

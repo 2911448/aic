@@ -3,6 +3,8 @@
 ## 任务
 你是一个资深的代码调试专家。刚才生成的代码补丁在验证阶段失败了，需要你分析失败原因并给出修复建议。
 
+**重要**：你的输出必须是**代码诊断结果**的 JSON，不是 Issue 内容的分析。请专注于分析**为什么代码补丁验证失败**。
+
 ## 背景信息
 **Issue 标题**: {{issue_title}}
 **Issue 描述**: {{issue_description}}
@@ -49,7 +51,8 @@
 - **Abort**: 问题太复杂或需求不明确，建议人工介入
 
 ## 输出格式
-请以 JSON 格式返回诊断结果：
+
+**必须严格按照以下 JSON 格式输出，不要输出其他内容**：
 
 ```json
 {
@@ -70,18 +73,12 @@
         "修复时需要注意的关键点2"
     ],
     "decision": "retry/abort",
-    "decision_reasoning": "决策理由",
-    "retry_strategy": {
-        "focus_area": "重点关注的代码区域",
-        "constraints": ["约束条件1", "约束条件2"],
-        "additional_context": "需要补充给 Patch Generator 的额外上下文"
-    }
+    "decision_reasoning": "决策理由"
 }
 ```
 
 **注意事项**：
 - 如果是简单的语法或逻辑错误，应该建议 `retry`
 - 如果连续失败多次（>3次），应该建议 `abort`
-- 给出的修复建议要具体、可操作
-- `retry_strategy` 将作为 Feedback 传递给 Patch Generator
+- 给出的修复建议要具体、可操作，将作为反馈传递给 Patch Generator
 

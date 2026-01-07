@@ -11,6 +11,7 @@ from app.graph.nodes.context_assembler_agent_node import ContextAssemblerAgentNo
 from app.graph.nodes.entry_selector_agent_node import EntrySelectorAgentNode
 from app.graph.nodes.impact_analyzer_agent_node import ImpactAnalyzerAgentNode
 from app.graph.nodes.issue_insight_agent_node import IssueInsightAgentNode
+from app.graph.nodes.mr_submitter_agent_node import MRSubmitterAgentNode
 from app.graph.nodes.patch_generator_agent_node import PatchGeneratorAgentNode
 from app.graph.nodes.plan_node import PlanAgentNode
 from app.graph.nodes.refine_agent_node import RefineAgentNode
@@ -51,6 +52,7 @@ def create_issue_workflow():
     verify_node = VerifyAgentNode()
     refine_node = RefineAgentNode()
     reviewer_node = ReviewerAgentNode()
+    mr_submitter_node = MRSubmitterAgentNode()
 
     # 创建状态图
     graph = StateGraph(IssueProcessState)
@@ -66,6 +68,7 @@ def create_issue_workflow():
     graph.add_node(NodeName.VERIFY.value, verify_node)
     graph.add_node(NodeName.REFINE.value, refine_node)
     graph.add_node(NodeName.REVIEWER.value, reviewer_node)
+    graph.add_node(NodeName.MR_SUBMITTER.value, mr_submitter_node)
 
     # 设置入口点：START → plan
     graph.set_entry_point(NodeName.PLAN.value)

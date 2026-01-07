@@ -33,6 +33,8 @@ class NodeName(str, Enum):
     VERIFY = "verify"
     REFINE = "refine"
     REVIEWER = "reviewer"
+    # MR 提交节点
+    MR_SUBMITTER = "mr_submitter"
     END = "__end__"
 
 
@@ -68,6 +70,7 @@ class IssueProcessState(TypedDict, total=False):
 
     # Issue Insight Results
     issue_type: Optional[str]  # bug or feature
+    branch_name_suggestion: Optional[str]  # LLM生成的分支名建议
     search_queries: list[str]  # Generated RAG search queries
 
     # Code Retrieval Results
@@ -102,6 +105,11 @@ class IssueProcessState(TypedDict, total=False):
     
     # Review Results
     review_report: Optional[str]  # Markdown 格式的评审报告
+
+    # MR Submission Results
+    mr_url: Optional[str]  # Merge Request URL
+    mr_iid: Optional[int]  # Merge Request IID
+    branch_name: Optional[str]  # 创建的分支名称
 
     # Execution Metadata
     executed_nodes: list[str]  # History of executed nodes for tracking

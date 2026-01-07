@@ -32,7 +32,6 @@ class VerificationResult:
         self.semantic_check: dict = {}
         self.sandbox_check: dict = {}
         self.issues: list[dict] = []
-        self.recommendations: list[str] = []
 
     def to_dict(self) -> dict:
         return {
@@ -43,7 +42,6 @@ class VerificationResult:
             "semantic_check": self.semantic_check,
             "sandbox_check": self.sandbox_check,
             "issues": self.issues,
-            "recommendations": self.recommendations,
         }
 
 
@@ -239,7 +237,6 @@ class VerifyAgentNode:
             result.status = "fail"
             result.confidence = semantic_result.get("confidence", 0.6)
             result.issues.extend(semantic_result.get("issues", []))
-            result.recommendations.extend(semantic_result.get("recommendations", []))
             return result
 
         # Step 4: 可选的 Sandbox Import Check（简化实现）
@@ -249,7 +246,6 @@ class VerifyAgentNode:
         result.status = "pass"
         result.confidence = semantic_result.get("confidence", 0.85)
         result.issues.extend(linter_result.get("issues", []))
-        result.recommendations.extend(semantic_result.get("recommendations", []))
 
         return result
 
@@ -511,7 +507,6 @@ class VerifyAgentNode:
                 "status": "skip",
                 "confidence": 0.5,
                 "issues": [],
-                "recommendations": [],
             }
 
         issue_data = state.get("issue_data", {})
@@ -543,9 +538,6 @@ class VerifyAgentNode:
                 "status": result.get("status", "pass"),
                 "confidence": result.get("confidence", 0.8),
                 "issues": result.get("issues", []),
-                "semantic_regression": result.get("semantic_regression", {}),
-                "reasoning": result.get("reasoning", ""),
-                "recommendations": result.get("recommendations", []),
             }
 
         except Exception as e:
@@ -555,7 +547,6 @@ class VerifyAgentNode:
                 "confidence": 0.5,
                 "message": f"语义检查失败: {str(e)}",
                 "issues": [],
-                "recommendations": [],
             }
 
     def _build_static_summary(

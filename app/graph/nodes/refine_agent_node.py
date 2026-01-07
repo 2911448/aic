@@ -25,7 +25,6 @@ class DiagnosisResult:
         self.key_points: list[str] = []
         self.decision: str = "abort"  # retry/abort
         self.decision_reasoning: str = ""
-        self.retry_strategy: dict = {}
 
     def to_dict(self) -> dict:
         return {
@@ -35,7 +34,6 @@ class DiagnosisResult:
             "key_points": self.key_points,
             "decision": self.decision,
             "decision_reasoning": self.decision_reasoning,
-            "retry_strategy": self.retry_strategy
         }
 
 
@@ -147,11 +145,13 @@ class RefineAgentNode:
             # 执行诊断
             diagnosis = await self._diagnose_failure(state, verification_result)
 
-            # 更新重试历史
+            # 更新重试历史（记录完整上下文便于调试）
             retry_history = state.get("retry_history", [])
             retry_history.append(
                 {
                     "retry_count": retry_count + 1,
+                    "patch": state.get("current_patch"),  # 失败的补丁
+                    "modified_code": state.get("current_modified_code"),  # 失败的完整代码
                     "diagnosis": diagnosis.to_dict(),
                     "verification_result": verification_result,
                 }
@@ -173,7 +173,7 @@ class RefineAgentNode:
             # 根据决策选择下一步
             if diagnosis.decision == "retry":
                 logger.info(
-                    f"诊断建议重试 (第 {retry_count + 1} 次)，将重新生成补丁"
+                    f"诊断建议重试 (第 {retry_count + 1} 次)，由 Plan 统一决策"
                 )
 
                 await adispatch_custom_event(
@@ -190,8 +190,7 @@ class RefineAgentNode:
                     },
                 )
 
-                # 返回到 Patch Generator 重新生成
-                return Command(update=update_dict, goto=NodeName.PATCH_GENERATOR.value)
+                return Command(update=update_dict, goto=NodeName.PLAN.value)
 
             else:
                 logger.info(f"诊断建议停止重试: {diagnosis.decision_reasoning}")
@@ -250,7 +249,7 @@ class RefineAgentNode:
         # 获取代码信息
         editable_context_dict = state.get("editable_context", {})
         original_code = ""
-        modified_code = ""
+        modified_code = state.get("current_modified_code", "")  # 从 state 获取失败的修改后代码
 
         if editable_context_dict:
             from app.schemas.context_assembly import EditableContextSlice
@@ -296,7 +295,6 @@ class RefineAgentNode:
             diagnosis.key_points = result.get("key_points", [])
             diagnosis.decision = result.get("decision", "abort")
             diagnosis.decision_reasoning = result.get("decision_reasoning", "")
-            diagnosis.retry_strategy = result.get("retry_strategy", {})
 
             return diagnosis
 
