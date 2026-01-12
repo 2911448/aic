@@ -2,7 +2,7 @@
 数据模型模块
 """
 
-from app.schemas.api import HealthResponse, ChatRequest, ChatResponse
+from app.schemas.api import HealthResponse
 from app.schemas.code import CodeSnippet
 from app.schemas.context_assembly import (
     TargetContext,
@@ -17,8 +17,6 @@ from app.schemas.context_assembly import (
 
 __all__ = [
     "HealthResponse",
-    "ChatRequest",
-    "ChatResponse",
     "CodeSnippet",
     # Context Assembly
     "TargetContext",

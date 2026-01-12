@@ -276,6 +276,22 @@ class SandboxManager:
             raise SandboxNotFoundError(sandbox_id)
         return container
 
+    async def set_sandbox_working_dir(
+        self,
+        sandbox_id: str,
+        working_dir: str
+    ) -> None:
+        """
+        设置 sandbox 的工作目录
+        
+        Args:
+            sandbox_id: 沙箱 ID
+            working_dir: 工作目录路径（容器内路径）
+        """
+        sandbox = await self.get_sandbox(sandbox_id)
+        sandbox.repo_working_dir = working_dir
+        logger.info(f"Sandbox {sandbox_id} 工作目录设置为: {working_dir}")
+
     async def execute_command(
         self,
         sandbox_id: str,
@@ -307,7 +323,7 @@ class SandboxManager:
             )
 
         effective_timeout = timeout or sandbox.config.timeout
-        effective_workdir = workdir or sandbox.config.workspace_path
+        effective_workdir = workdir or sandbox.repo_working_dir or sandbox.config.workspace_path
 
         result = await self._docker_client.execute_command(
             container=container,

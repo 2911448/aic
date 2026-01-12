@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import Optional
 
 from app.core.logger_config import logger
-from app.rag.tree_sitter_service import ASTInfo, FunctionCall, tree_sitter_service
+from app.utils.tree_sitter_service import ASTInfo, FunctionCall, tree_sitter_service
 from app.schemas.code_scope import (
     CodeLocation,
     DependencyRelation,

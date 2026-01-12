@@ -82,6 +82,21 @@ class GitService:
             )
 
         return result
+    
+    async def _get_target_dir(self, repo_path: str = ".") -> str:
+        """
+        获取目标目录的绝对路径
+        
+        优先使用沙箱的 repo_working_dir（绝对路径），如果没有设置则使用传入的 repo_path
+        
+        Args:
+            repo_path: 仓库路径（可能是相对路径）
+            
+        Returns:
+            目标目录的路径（优先返回绝对路径）
+        """
+        sandbox = await self._manager.get_sandbox(self._sandbox_id)
+        return sandbox.repo_working_dir or repo_path
 
     def _prepare_clone_url(
         self,
@@ -211,6 +226,17 @@ class GitService:
             # 更新沙箱的仓库信息
             sandbox.repo_url = repo_url
             sandbox.current_branch = branch
+            
+            # 设置工作目录为仓库根目录
+            # 获取仓库的绝对路径（容器内路径）
+            pwd_result = await self._execute(
+                f"cd {repo_path} && pwd",
+                timeout=10,
+                check=False,
+            )
+            if pwd_result.success:
+                absolute_repo_path = pwd_result.stdout.strip()
+                await self._manager.set_sandbox_working_dir(self._sandbox_id, absolute_repo_path)
 
             logger.info(
                 f"沙箱 {self._sandbox_id}: 克隆成功, commit={commit_hash[:8] if commit_hash else 'unknown'}"
@@ -246,8 +272,9 @@ class GitService:
             repo_path: 仓库路径
         """
         logger.info(f"沙箱 {self._sandbox_id}: 切换分支 {branch}, create={create}")
-
-        cmd_parts = [f"cd {repo_path} && git checkout"]
+        
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} checkout"]
 
         if create:
             cmd_parts.append("-b")
@@ -290,7 +317,8 @@ class GitService:
         Returns:
             命令执行结果
         """
-        cmd_parts = [f"cd {repo_path} && git pull"]
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} pull"]
 
         if rebase:
             cmd_parts.append("--rebase")
@@ -326,7 +354,8 @@ class GitService:
         Returns:
             命令执行结果
         """
-        cmd_parts = [f"cd {repo_path} && git fetch"]
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} fetch"]
 
         if prune:
             cmd_parts.append("--prune")
@@ -360,13 +389,15 @@ class GitService:
         Returns:
             命令执行结果
         """
+        target_dir = await self._get_target_dir(repo_path)
+        
         if all_files:
-            command = f"cd {repo_path} && git add -A"
+            command = f"git -C {target_dir} add -A"
         elif files:
             files_str = " ".join(f'"{f}"' for f in files)
-            command = f"cd {repo_path} && git add {files_str}"
+            command = f"git -C {target_dir} add {files_str}"
         else:
-            command = f"cd {repo_path} && git add ."
+            command = f"git -C {target_dir} add ."
 
         result = await self._execute(command, timeout=30)
         return result
@@ -393,6 +424,8 @@ class GitService:
             提交的 commit hash
         """
         logger.info(f"沙箱 {self._sandbox_id}: 开始提交变更")
+        
+        target_dir = await self._get_target_dir(repo_path)
 
         # 如果指定了文件，先 add
         if files or all_files:
@@ -400,7 +433,7 @@ class GitService:
 
         # 构建 commit 命令
         escaped_message = message.replace('"', '\\"')
-        cmd_parts = [f'cd {repo_path} && git commit -m "{escaped_message}"']
+        cmd_parts = [f'git -C {target_dir} commit -m "{escaped_message}"']
 
         if allow_empty:
             cmd_parts.append("--allow-empty")
@@ -418,7 +451,7 @@ class GitService:
                     logger.info(f"沙箱 {self._sandbox_id}: 没有需要提交的变更")
                     # 返回当前 HEAD
                     head_result = await self._execute(
-                        f"cd {repo_path} && git rev-parse HEAD",
+                        f"git -C {target_dir} rev-parse HEAD",
                         timeout=10,
                     )
                     return head_result.stdout.strip()
@@ -426,7 +459,7 @@ class GitService:
 
             # 获取提交的 hash
             hash_result = await self._execute(
-                f"cd {repo_path} && git rev-parse HEAD",
+                f"git -C {target_dir} rev-parse HEAD",
                 timeout=10,
             )
             commit_hash = hash_result.stdout.strip()
@@ -457,17 +490,19 @@ class GitService:
             set_upstream: 是否设置上游分支
             repo_path: 仓库路径
         """
+        target_dir = await self._get_target_dir(repo_path)
+        
         # 获取当前分支
         if not branch:
             branch_result = await self._execute(
-                f"cd {repo_path} && git rev-parse --abbrev-ref HEAD",
+                f"git -C {target_dir} rev-parse --abbrev-ref HEAD",
                 timeout=10,
             )
             branch = branch_result.stdout.strip()
 
         logger.info(f"沙箱 {self._sandbox_id}: 推送分支 {branch} 到 {remote}")
 
-        cmd_parts = [f"cd {repo_path} && git push"]
+        cmd_parts = [f"git -C {target_dir} push"]
 
         if force:
             cmd_parts.append("--force")
@@ -509,23 +544,25 @@ class GitService:
         Returns:
             Git 状态信息
         """
+        target_dir = await self._get_target_dir(repo_path)
+        
         # 获取当前分支
         branch_result = await self._execute(
-            f"cd {repo_path} && git rev-parse --abbrev-ref HEAD",
+            f"git -C {target_dir} rev-parse --abbrev-ref HEAD",
             timeout=10,
         )
         branch = branch_result.stdout.strip()
 
         # 获取当前 commit hash
         hash_result = await self._execute(
-            f"cd {repo_path} && git rev-parse HEAD",
+            f"git -C {target_dir} rev-parse HEAD",
             timeout=10,
         )
         commit_hash = hash_result.stdout.strip()
 
         # 获取状态信息
         status_result = await self._execute(
-            f"cd {repo_path} && git status --porcelain",
+            f"git -C {target_dir} status --porcelain",
             timeout=30,
         )
 
@@ -577,7 +614,7 @@ class GitService:
         behind = 0
         try:
             remote_result = await self._execute(
-                f"cd {repo_path} && git rev-list --left-right --count HEAD...@{{u}}",
+                f"git -C {target_dir} rev-list --left-right --count HEAD...@{{u}}",
                 timeout=10,
                 check=False,
             )
@@ -632,7 +669,8 @@ class GitService:
         Returns:
             diff 输出
         """
-        cmd_parts = [f"cd {repo_path} && git diff"]
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} diff"]
 
         if staged:
             cmd_parts.append("--cached")
@@ -669,7 +707,8 @@ class GitService:
         Returns:
             日志输出
         """
-        cmd_parts = [f"cd {repo_path} && git log -n {count}"]
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} log -n {count}"]
 
         if oneline:
             cmd_parts.append("--oneline")
@@ -696,7 +735,8 @@ class GitService:
         Returns:
             分支列表
         """
-        cmd_parts = [f"cd {repo_path} && git branch"]
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} branch"]
 
         if all_branches:
             cmd_parts.append("-a")
@@ -731,7 +771,8 @@ class GitService:
             target: 重置目标
             repo_path: 仓库路径
         """
-        command = f"cd {repo_path} && git reset --{mode} {target}"
+        target_dir = await self._get_target_dir(repo_path)
+        command = f"git -C {target_dir} reset --{mode} {target}"
         await self._execute(command, timeout=30)
         logger.info(f"沙箱 {self._sandbox_id}: 重置到 {target} (mode={mode})")
 
@@ -752,7 +793,8 @@ class GitService:
         Returns:
             命令执行结果
         """
-        cmd_parts = [f"cd {repo_path} && git stash {action}"]
+        target_dir = await self._get_target_dir(repo_path)
+        cmd_parts = [f"git -C {target_dir} stash {action}"]
 
         if action == "push" and message:
             cmd_parts.extend(["-m", f'"{message}"'])
@@ -777,20 +819,40 @@ class GitService:
         Raises:
             GitError: 补丁应用失败
         """
-        logger.info(f"沙箱 {self._sandbox_id}: 开始应用补丁")
+        # 验证补丁内容
+        if not patch_content or not patch_content.strip():
+            raise GitError(
+                "补丁内容为空",
+                self._sandbox_id,
+                "apply_patch",
+            )
+        
+        # 验证补丁格式（应该以 --- 或 diff 开头）
+        first_line = patch_content.strip().split('\n')[0]
+        if not (first_line.startswith('---') or first_line.startswith('diff')):
+            logger.warning(f"补丁格式可能不正确，首行: {first_line[:100]}")
+        
+        logger.info(
+            f"沙箱 {self._sandbox_id}: 开始应用补丁 "
+            f"(size={len(patch_content)} bytes, lines={patch_content.count(chr(10))})"
+        )
 
+        # 使用 FileService 安全地写入补丁文件
+        from app.sandbox.file_service import FileService
+        file_service = FileService(self._manager, self._sandbox_id)
+        
         # 创建临时补丁文件
         patch_file = f"/tmp/patch_{self._sandbox_id}.diff"
         
-        # 写入补丁内容（转义特殊字符）
-        write_cmd = f"cat > {patch_file} << 'EOF'\n{patch_content}\nEOF"
-        
-        await self._execute(write_cmd, timeout=10)
-
-        # 应用补丁
-        apply_cmd = f"cd {repo_path} && git apply {patch_file}"
-        
         try:
+            # 写入补丁内容
+            await file_service.write_file(patch_file, patch_content, create_dirs=False)
+            
+            # 获取目标目录（优先使用绝对路径）
+            target_dir = await self._get_target_dir(repo_path)
+            
+            # 使用 git -C 来指定工作目录，避免相对路径问题
+            apply_cmd = f"git -C {target_dir} apply {patch_file}"
             result = await self._execute(apply_cmd, timeout=60, check=False)
             
             if not result.success:
@@ -804,4 +866,7 @@ class GitService:
             
         finally:
             # 清理临时文件
-            await self._execute(f"rm -f {patch_file}", timeout=10, check=False)
+            try:
+                await file_service.delete_file(patch_file)
+            except Exception as e:
+                logger.warning(f"清理临时补丁文件失败: {e}")

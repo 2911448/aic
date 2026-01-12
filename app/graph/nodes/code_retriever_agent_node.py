@@ -27,7 +27,7 @@ class CodeRetrieverAgentNode:
     async def __call__(
         self,
         state: IssueProcessState,
-    ) -> Command[Literal[NodeName.PLAN.value]]:
+    ) -> Command[Literal["main_router", "sandbox_teardown"]]:
         """
         执行代码检索
 
@@ -35,7 +35,7 @@ class CodeRetrieverAgentNode:
             state: 当前工作流状态
 
         Returns:
-            Command对象，返回plan节点
+            Command对象，返回 main_router 节点
         """
         update_dict = {}
 
@@ -59,14 +59,25 @@ class CodeRetrieverAgentNode:
             retrieved_code = await self._retrieve_and_rerank(state)
 
             # 更新状态
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "retrieved_code": retrieved_code,
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        NodeName.CODE_RETRIEVER.value,
-                    ],
-                    "current_step": NodeName.CODE_RETRIEVER.value,
+                    "retrieval": {
+                        "retrieved_code": retrieved_code,
+                        "retrieval_meta": {
+                            "count": len(retrieved_code),
+                            "top_k": self.top_k,
+                            "final_top_n": self.final_top_n,
+                        },
+                    },
+                    "runtime": {
+                        **runtime,
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.CODE_RETRIEVER.value,
+                        ],
+                        "current_step": NodeName.CODE_RETRIEVER.value,
+                    },
                 }
             )
 
@@ -89,22 +100,26 @@ class CodeRetrieverAgentNode:
                 },
             )
 
-            return Command(update=update_dict, goto=NodeName.PLAN.value)
+            return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
 
         except Exception as e:
             logger.error(f"代码检索失败: {e}", exc_info=True)
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "error": f"代码检索失败: {str(e)}",
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        NodeName.CODE_RETRIEVER.value,
-                    ],
-                    "current_step": NodeName.CODE_RETRIEVER.value,
+                    "runtime": {
+                        **runtime,
+                        "error": f"代码检索失败: {str(e)}",
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.CODE_RETRIEVER.value,
+                        ],
+                        "current_step": NodeName.CODE_RETRIEVER.value,
+                    },
                 }
             )
 
-            return Command(update=update_dict, goto=NodeName.END.value)
+            return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
     async def _retrieve_and_rerank(
         self, state: IssueProcessState
@@ -119,7 +134,8 @@ class CodeRetrieverAgentNode:
             重排序后的代码片段列表
         """
         # 1. 获取输入数据
-        search_queries = state.get("search_queries", [])
+        analysis = state.get("analysis", {})
+        search_queries = analysis.get("search_queries", [])
         issue_data = state.get("issue_data", {})
         project_info = state.get("project_info", {})
 

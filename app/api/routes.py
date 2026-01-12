@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, Header, HTTPException
 from typing import Optional
 from app.core.logger_config import logger
 
-from app.schemas.api import HealthResponse, ChatRequest, ChatResponse
+from app.schemas.api import HealthResponse
 from app.schemas.webhook import GitLabWebhookPayload, WebhookResponse
 from app.services.webhook import webhook_service
 

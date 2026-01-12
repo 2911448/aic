@@ -9,6 +9,7 @@ import time
 
 from app.schemas.code import CodeSnippet
 from app.core.logger_config import logger
+from app.utils.common_function import detect_language
 
 
 # 延迟导入，避免循环依赖
@@ -22,22 +23,17 @@ def get_code_chunker():
 class CodeParser:
     """代码解析器基类"""
 
-    SUPPORTED_LANGUAGES = {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-        ".java": "java",
-        ".go": "go",
-        ".cpp": "cpp",
-        ".c": "c",
-        ".rs": "rust",
-    }
-
     @staticmethod
     def detect_language(file_path: str) -> str | None:
-        """根据文件扩展名检测编程语言"""
-        ext = Path(file_path).suffix.lower()
-        return CodeParser.SUPPORTED_LANGUAGES.get(ext)
+        """
+        根据文件扩展名检测编程语言
+        
+        Note: 此方法已迁移到 app.utils.common_function.detect_language
+        保留此方法用于向后兼容
+        """
+        # 使用公共函数，返回 None 如果是默认值 "python" 以外的语言
+        result = detect_language(file_path, default=None)
+        return result if result != "python" else result
 
     @staticmethod
     def is_empty_or_comments_only(file_path: str, language: str) -> bool:

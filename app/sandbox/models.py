@@ -55,7 +55,7 @@ class SandboxConfig(BaseModel):
     """沙箱配置"""
 
     docker_image: str = Field(
-        default="video-sandbox:0.1", description="Docker 基础镜像"
+        default="video-sandbox:latest", description="Docker 基础镜像"
     )
     memory_limit: str = Field(default="512m", description="内存限制")
     cpu_limit: float = Field(default=1.0, description="CPU 核心数限制")
@@ -83,6 +83,7 @@ class Sandbox(BaseModel):
     # Git 仓库信息
     repo_url: str | None = Field(default=None, description="Git 仓库地址")
     current_branch: str | None = Field(default=None, description="当前分支")
+    repo_working_dir: str | None = Field(default=None, description="仓库工作目录（容器内路径）")
 
 
 class CommandResult(BaseModel):

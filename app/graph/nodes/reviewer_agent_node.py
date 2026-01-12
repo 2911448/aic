@@ -24,7 +24,7 @@ class ReviewerAgentNode:
     async def __call__(
         self,
         state: IssueProcessState,
-    ) -> Command[Literal[NodeName.PLAN.value]]:
+    ) -> Command[Literal["main_router", "sandbox_teardown"]]:
         """
         生成代码评审报告
 
@@ -32,19 +32,19 @@ class ReviewerAgentNode:
             state: 当前工作流状态
 
         Returns:
-            Command 对象，返回 plan 节点
+            Command 对象，返回 main_router 节点
         """
         update_dict = {}
 
         try:
             # 发送进度事件
             await adispatch_custom_event(
-                ProcessStage.THINK_CHAIN.value,
+                ProcessStage.REVIEW.value,
                 {
-                    "status": "reviewer",
+                    "status": NodeName.REVIEWER.value,
                     "progress": "正在生成评审报告...",
                     "think_chain_item": {
-                        "type": "reviewer",
+                        "type": NodeName.REVIEWER.value,
                         "title": "代码评审",
                         "desc": "生成变更说明和评审建议",
                         "urls": [],
@@ -52,23 +52,30 @@ class ReviewerAgentNode:
                 },
             )
 
-            # 获取所需信息
-            generated_patches = state.get("generated_patches", {})
-            verification_result = state.get("verification_result")
-            impact_report = state.get("impact_report")
+            # 从分域结构获取所需信息
+            patching = state.get("patching", {})
+            generated_patches = patching.get("generated_patches", {})
+            verification = state.get("verification", {})
+            verification_result = verification.get("final_verification")
+            impact = state.get("impact", {})
+            impact_report = impact.get("impact_report")
 
             if not generated_patches:
                 logger.warning("没有生成的补丁，跳过评审")
+                runtime = state.get("runtime", {})
                 update_dict.update(
                     {
-                        "executed_nodes": [
-                            *state.get("executed_nodes", []),
-                            "reviewer",
-                        ],
-                        "current_step": "reviewer",
+                        "runtime": {
+                            **runtime,
+                            "executed_nodes": [
+                                *runtime.get("executed_nodes", []),
+                                NodeName.REVIEWER.value,
+                            ],
+                            "current_step": NodeName.REVIEWER.value,
+                        },
                     }
                 )
-                return Command(update=update_dict, goto=NodeName.PLAN.value)
+                return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
 
             # 生成评审报告（Markdown 格式）
             markdown_report = await self._generate_review_report(
@@ -78,14 +85,20 @@ class ReviewerAgentNode:
                 impact_report,
             )
 
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "review_report": markdown_report,
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        "reviewer",
-                    ],
-                    "current_step": "reviewer",
+                    "review": {
+                        "review_report": markdown_report,
+                    },
+                    "runtime": {
+                        **runtime,
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.REVIEWER.value,
+                        ],
+                        "current_step": NodeName.REVIEWER.value,
+                    },
                 }
             )
 
@@ -95,10 +108,10 @@ class ReviewerAgentNode:
             await adispatch_custom_event(
                 ProcessStage.THINK_CHAIN.value,
                 {
-                    "status": "reviewer",
+                    "status": NodeName.REVIEWER.value,
                     "progress": "评审报告生成完成",
                     "think_chain_item": {
-                        "type": "reviewer",
+                        "type": NodeName.REVIEWER.value,
                         "title": "代码评审",
                         "desc": "已生成 Markdown 格式的评审报告",
                         "urls": [],
@@ -106,22 +119,26 @@ class ReviewerAgentNode:
                 },
             )
 
-            return Command(update=update_dict, goto=NodeName.PLAN.value)
+            return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
 
         except Exception as e:
             logger.error(f"评审报告生成失败: {e}", exc_info=True)
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "error": f"评审报告生成失败: {str(e)}",
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        "reviewer",
-                    ],
-                    "current_step": "reviewer",
+                    "runtime": {
+                        **runtime,
+                        "error": f"评审报告生成失败: {str(e)}",
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.REVIEWER.value,
+                        ],
+                        "current_step": NodeName.REVIEWER.value,
+                    },
                 }
             )
 
-            return Command(update=update_dict, goto=NodeName.PLAN.value)
+            return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
     async def _generate_review_report(
         self,
@@ -145,7 +162,9 @@ class ReviewerAgentNode:
         issue_data = state.get("issue_data", {})
         issue_title = issue_data.get("title", "")
         issue_description = issue_data.get("description", "")
-        issue_type = state.get("issue_type", "unknown")
+        # 从分域结构读取 issue_type
+        analysis = state.get("analysis", {})
+        issue_type = analysis.get("issue_type", "unknown")
 
         # 构建补丁信息列表
         patches_info = []
@@ -164,11 +183,10 @@ class ReviewerAgentNode:
         # 验证结果摘要
         verification_summary = "未执行验证"
         if verification_result:
-            status = verification_result.get("status", "unknown")
-            confidence = verification_result.get("confidence", 0.0)
+            passed = verification_result.get("passed", False)
             issues_count = len(verification_result.get("issues", []))
             verification_summary = (
-                f"验证状态: {status}, 置信度: {confidence:.0%}"
+                f"验证状态: {'通过' if passed else '失败'}"
                 + (f", 发现 {issues_count} 个问题" if issues_count > 0 else "")
             )
 

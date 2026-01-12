@@ -26,7 +26,7 @@ class IssueInsightAgentNode:
     async def __call__(
         self,
         state: IssueProcessState,
-    ) -> Command[Literal[NodeName.PLAN.value]]:
+    ) -> Command[Literal["main_router", "sandbox_teardown"]]:
         """
         执行Issue分析并生成RAG搜索查询
 
@@ -34,7 +34,7 @@ class IssueInsightAgentNode:
             state: 当前工作流状态
 
         Returns:
-            Command对象，指定下一步路由到plan节点
+            Command对象，指定下一步路由到 main_router 节点
         """
         update_dict = {}
 
@@ -43,10 +43,10 @@ class IssueInsightAgentNode:
             await adispatch_custom_event(
                 ProcessStage.ISSUE_ANALYSIS.value,
                 {
-                    "status": NodeName.ISSUE_INSIGHT.value,
+                    "status": NodeName.ISSUE_ANALYST.value,
                     "progress": "正在分析Issue并生成搜索查询...",
                     "think_chain_item": {
-                        "type": NodeName.ISSUE_INSIGHT.value,
+                        "type": NodeName.ISSUE_ANALYST.value,
                         "title": "Issue语义理解",
                         "desc": "分析Issue内容，生成RAG搜索查询",
                         "urls": [],
@@ -61,21 +61,27 @@ class IssueInsightAgentNode:
             search_queries = [q.query for q in analysis.search_queries]
 
             # 更新状态
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "issue_type": analysis.issue_type,
-                    "branch_name_suggestion": analysis.branch_name_suggestion,
-                    "search_queries": search_queries,
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        NodeName.ISSUE_INSIGHT.value,
-                    ],
-                    "current_step": NodeName.ISSUE_INSIGHT.value,
+                    "analysis": {
+                        "issue_type": analysis.issue_type,
+                        "branch_name_suggestion": analysis.branch_name_suggestion,
+                        "search_queries": search_queries,
+                    },
+                    "runtime": {
+                        **runtime,
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.ISSUE_ANALYST.value,
+                        ],
+                        "current_step": NodeName.ISSUE_ANALYST.value,
+                    },
                 }
             )
 
             logger.info(
-                f"Issue Insight完成: 类型={analysis.issue_type}, "
+                f"Issue Analyst完成: 类型={analysis.issue_type}, "
                 f"分支名={analysis.branch_name_suggestion}, "
                 f"生成{len(search_queries)}个搜索查询"
             )
@@ -84,10 +90,10 @@ class IssueInsightAgentNode:
             await adispatch_custom_event(
                 ProcessStage.THINK_CHAIN.value,
                 {
-                    "status": NodeName.ISSUE_INSIGHT.value,
+                    "status": NodeName.ISSUE_ANALYST.value,
                     "progress": "Issue分析完成",
                     "think_chain_item": {
-                        "type": NodeName.ISSUE_INSIGHT.value,
+                        "type": NodeName.ISSUE_ANALYST.value,
                         "title": "Issue语义理解",
                         "desc": f"类型: {analysis.issue_type}, 生成{len(search_queries)}个搜索查询",
                         "urls": [],
@@ -95,22 +101,26 @@ class IssueInsightAgentNode:
                 },
             )
 
-            return Command(update=update_dict, goto=NodeName.PLAN.value)
+            return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
 
         except Exception as e:
-            logger.error(f"Issue Insight失败: {e}", exc_info=True)
+            logger.error(f"Issue Analyst失败: {e}", exc_info=True)
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "error": f"Issue分析失败: {str(e)}",
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        NodeName.ISSUE_INSIGHT.value,
-                    ],
-                    "current_step": NodeName.ISSUE_INSIGHT.value,
+                    "runtime": {
+                        **runtime,
+                        "error": f"Issue分析失败: {str(e)}",
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.ISSUE_ANALYST.value,
+                        ],
+                        "current_step": NodeName.ISSUE_ANALYST.value,
+                    },
                 }
             )
 
-            return Command(update=update_dict, goto=NodeName.END.value)
+            return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
     async def _analyze_and_generate_queries(
         self, state: IssueProcessState
@@ -132,9 +142,6 @@ class IssueInsightAgentNode:
 
         if labels and isinstance(labels[0], dict):
             labels = [label.get("title", "") for label in labels]
-
-        logger.info(f"Issue: {issue_title}")
-        logger.info(f"Project: {project_path}")
 
         llm = await get_gpt_model()
 

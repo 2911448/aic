@@ -24,12 +24,3 @@ def test_health_check(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
-
-
-def test_chat(client: TestClient) -> None:
-    """测试聊天接口"""
-    response = client.post("/api/v1/chat", json={"message": "Hello"})
-    assert response.status_code == 200
-    data = response.json()
-    assert "message" in data
-    assert "Hello" in data["message"]

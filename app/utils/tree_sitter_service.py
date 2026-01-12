@@ -75,8 +75,6 @@ class TreeSitterService:
             ts_lang = Language(tstypescript.language_typescript())
             ts_parser = Parser(ts_lang)
             self._parsers["typescript"] = ts_parser
-
-            logger.info(f"Tree-sitter 解析器初始化完成: {list(self._parsers.keys())}")
         except Exception as e:
             logger.error(f"初始化 Tree-sitter 解析器失败: {e}")
             self._parsers = {}

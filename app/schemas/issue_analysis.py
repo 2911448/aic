@@ -30,20 +30,3 @@ class IssueAnalysis(BaseModel):
         ..., min_length=3, max_length=10, description="RAG搜索查询"
     )
 
-
-class PlanDecision(BaseModel):
-    """Plan决策"""
-    next_node: Literal[
-        "issue_insight",
-        "code_retriever",
-        "entry_selector",
-        "context_assembler",
-        "patch_generator",
-        "impact_analyzer",
-        "verify",
-        "refine",
-        "reviewer",
-        "mr_submitter",
-        "END"
-    ] = Field(..., description="下一步执行节点")
-    reason: str = Field(..., description="路由决策原因")

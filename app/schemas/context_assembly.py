@@ -92,12 +92,6 @@ class EditableContextSlice(BaseModel):
         default="",
         description="目标文件的完整内容"
     )
-    
-    # Token 统计
-    estimated_tokens: int = Field(
-        default=0,
-        description="估算的 Token 数量"
-    )
 
 
 class AffectedCaller(BaseModel):

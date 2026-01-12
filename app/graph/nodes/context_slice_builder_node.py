@@ -1,6 +1,6 @@
 """
-Context Assembler Agent Node - 上下文组装节点
-构建可编辑上下文切片（Editable Context Slice）
+Context Slice Builder Node - 上下文切片构建节点
+仅负责构建可编辑上下文切片（Editable Context Slice）
 """
 
 from typing import Literal, Optional
@@ -10,37 +10,44 @@ from langgraph.types import Command
 
 from app.core.logger_config import logger
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
-from app.rag.dependency_analyzer import DependencyAnalyzer, DependencyGraph
-from app.rag.tree_sitter_service import ASTInfo, Symbol, tree_sitter_service
+from app.utils.dependency_analyzer import DependencyAnalyzer, DependencyGraph
+from app.utils.tree_sitter_service import ASTInfo, Symbol, tree_sitter_service
 from app.sandbox.manager import get_sandbox_manager
 from app.sandbox.exceptions import SandboxNotFoundError
-from app.sandbox.models import GitAuthConfig, GitAuthType, SandboxConfig
-from app.sandbox.git_service import GitService
 from app.sandbox.file_service import FileService
-from app.config.app_config import app_config
 from app.schemas.context_assembly import (
     DependencySignature,
     EditableContextSlice,
     TargetContext,
-    TargetStatus,
 )
+from app.utils.common_function import detect_language
 
 
-class ContextAssemblerAgentNode:
-    """上下文组装 Agent 节点"""
+class ContextSliceBuilderNode:
+    """
+    上下文切片构建节点
+    
+    职责：
+    - 从 sandbox 读取目标文件
+    - 使用 AST 提取目标符号完整代码
+    - 分析依赖关系并生成依赖签名
+    - 构建 EditableContextSlice 并写入 state.context
+    
+    不涉及：
+    - Sandbox 创建/销毁（由 SandboxBootstrap/Teardown 管理）
+    - 路由决策（由 MainRouter 管理）
+    """
 
     def __init__(self):
         """初始化节点"""
         self.tree_sitter = tree_sitter_service
         self.dependency_analyzer = DependencyAnalyzer()
         self.sandbox_manager = get_sandbox_manager()
-        # 估算：每个字符约 0.25 个 token
-        self.chars_per_token = 4
 
     async def __call__(
         self,
         state: IssueProcessState,
-    ) -> Command[Literal[NodeName.PLAN.value]]:
+    ) -> Command[Literal["main_router", "sandbox_teardown"]]:
         """
         构建可编辑上下文切片
 
@@ -48,160 +55,151 @@ class ContextAssemblerAgentNode:
             state: 当前工作流状态
 
         Returns:
-            Command对象，返回 plan 节点
+            Command对象，成功返回 main_router，失败返回 sandbox_teardown
         """
         update_dict = {}
 
         try:
             # 发送进度事件
             await adispatch_custom_event(
-                ProcessStage.CONTEXT_ASSEMBLY.value,
+                ProcessStage.CONTEXT_BUILDING.value,
                 {
-                    "status": NodeName.CONTEXT_ASSEMBLER.value,
-                    "progress": "正在构建可编辑上下文...",
+                    "status": NodeName.CONTEXT_SLICE_BUILDER.value,
+                    "progress": "正在构建可编辑上下文切片...",
                     "think_chain_item": {
-                        "type": NodeName.CONTEXT_ASSEMBLER.value,
-                        "title": "上下文组装",
+                        "type": NodeName.CONTEXT_SLICE_BUILDER.value,
+                        "title": "上下文切片构建",
                         "desc": "加载目标代码，分析依赖，构建编辑上下文",
                         "urls": [],
                     },
                 },
             )
 
-            # 获取当前目标
-            current_target_dict = state.get("current_target")
+            # 1. 获取当前目标
+            targeting = state.get("targeting", {})
+            current_target_dict = targeting.get("current_target")
+            
             if not current_target_dict:
-                logger.error("没有当前目标符号")
+                error_msg = "没有当前目标符号，无法构建上下文"
+                logger.error(error_msg)
+                runtime = state.get("runtime", {})
                 update_dict.update(
                     {
-                        "error": "没有当前目标符号，无法构建上下文",
-                        "executed_nodes": [
-                            *state.get("executed_nodes", []),
-                            NodeName.CONTEXT_ASSEMBLER.value,
-                        ],
-                        "current_step": NodeName.CONTEXT_ASSEMBLER.value,
+                        "runtime": {
+                            **runtime,
+                            "error": error_msg,
+                            "executed_nodes": [
+                                *runtime.get("executed_nodes", []),
+                                NodeName.CONTEXT_SLICE_BUILDER.value,
+                            ],
+                            "current_step": NodeName.CONTEXT_SLICE_BUILDER.value,
+                        },
                     }
                 )
-                return Command(update=update_dict, goto=NodeName.END.value)
+                return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
             current_target = TargetContext(**current_target_dict)
 
-            # 获取或创建 Sandbox
-            sandbox_id = state.get("sandbox_id")
-            sandbox = None
+            # 2. 获取 Sandbox 信息
+            sandbox = state.get("sandbox", {})
+            sandbox_id = sandbox.get("sandbox_id")
             
-            if sandbox_id:
-                try:
-                    sandbox = await self.sandbox_manager.get_sandbox(sandbox_id)
-                    logger.debug(f"复用现有沙箱: {sandbox_id}")
-                except SandboxNotFoundError:
-                    logger.warning(f"沙箱 {sandbox_id} 不存在，创建新沙箱")
-                    sandbox = None
-            
-            # 如果没有有效的沙箱，创建一个
-            if not sandbox:
-                logger.info("ContextAssembler: 创建新沙箱用于文件操作")
-                
-                # 1. 准备 Git 认证配置 (从应用配置中加载)
-                git_auth = None
-                if app_config.sandbox.git_auth:
-                    git_auth = GitAuthConfig(
-                        auth_type=GitAuthType(app_config.sandbox.git_auth.auth_type),
-                        ssh_private_key_path=app_config.sandbox.git_auth.ssh_private_key_path,
-                        http_token=app_config.sandbox.git_auth.http_token,
-                        http_username=app_config.sandbox.git_auth.http_username,
-                    )
-
-                # 2. 创建沙箱
-                sb_config = SandboxConfig(git_auth=git_auth)
-                sandbox = await self.sandbox_manager.create_sandbox(config=sb_config)
-                update_dict["sandbox_id"] = sandbox.id
-
-                # 3. 拉取代码 (新增步骤)
-                project_info = state.get("project_info", {})
-                repo_url = project_info.get("git_http_url") or project_info.get("http_url")
-                default_branch = project_info.get("default_branch", "main")
-                
-                if repo_url:
-                    try:
-                        # 创建 GitService 实例
-                        git_service = GitService(self.sandbox_manager, sandbox.id)
-                        clone_result = await git_service.clone(
-                            repo_url=repo_url,
-                            branch=default_branch,
-                        )
-                        # 保存仓库路径到 update_dict，供后续使用
-                        update_dict["repo_path"] = clone_result.repo_path
-                        repo_path = clone_result.repo_path
-                    except Exception as e:
-                        logger.error(f"代码克隆失败: {e}")
-                        update_dict.update(
-                            {
-                                "error": f"代码克隆失败: {str(e)}",
-                                "executed_nodes": [
-                                    *state.get("executed_nodes", []),
-                                    NodeName.CONTEXT_ASSEMBLER.value,
-                                ],
-                                "current_step": NodeName.CONTEXT_ASSEMBLER.value,
-                            }
-                        )
-                        return Command(update=update_dict, goto=NodeName.END.value)
-                else:
-                    logger.warning("未找到项目仓库地址，跳过代码克隆")
-                    repo_path = None
-            else:
-                # 复用已有沙箱，从 state 获取 repo_path
-                repo_path = state.get("repo_path")
-                if not repo_path:
-                    # 尝试从 sandbox 的 repo_url 推断
-                    repo_url = getattr(sandbox, "repo_url", None)
-                    if repo_url:
-                        repo_name = repo_url.split("/")[-1].replace(".git", "")
-                        repo_path = repo_name
-                logger.debug(f"复用沙箱的仓库路径: {repo_path}")
-
-            # 构建上下文切片
-            context_slice = await self._assemble_context(state, current_target, sandbox, repo_path)
-
-            if context_slice is None:
-                logger.error("无法构建上下文切片")
+            if not sandbox_id:
+                error_msg = "缺少 sandbox_id，Sandbox 应由 SandboxBootstrap 节点预先创建"
+                logger.error(error_msg)
+                runtime = state.get("runtime", {})
                 update_dict.update(
                     {
-                        "error": "无法构建上下文切片",
-                        "executed_nodes": [
-                            *state.get("executed_nodes", []),
-                            NodeName.CONTEXT_ASSEMBLER.value,
-                        ],
-                        "current_step": NodeName.CONTEXT_ASSEMBLER.value,
+                        "runtime": {
+                            **runtime,
+                            "error": error_msg,
+                            "executed_nodes": [
+                                *runtime.get("executed_nodes", []),
+                                NodeName.CONTEXT_SLICE_BUILDER.value,
+                            ],
+                            "current_step": NodeName.CONTEXT_SLICE_BUILDER.value,
+                        },
                     }
                 )
-                return Command(update=update_dict, goto=NodeName.END.value)
+                return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
+            
+            # 3. 获取 sandbox 实例
+            try:
+                sandbox_instance = await self.sandbox_manager.get_sandbox(sandbox_id)
+                logger.debug(f"使用已有沙箱: {sandbox_id}")
+            except SandboxNotFoundError:
+                error_msg = f"Sandbox {sandbox_id} 不存在"
+                logger.error(error_msg)
+                runtime = state.get("runtime", {})
+                update_dict.update(
+                    {
+                        "runtime": {
+                            **runtime,
+                            "error": error_msg,
+                            "executed_nodes": [
+                                *runtime.get("executed_nodes", []),
+                                NodeName.CONTEXT_SLICE_BUILDER.value,
+                            ],
+                            "current_step": NodeName.CONTEXT_SLICE_BUILDER.value,
+                        },
+                    }
+                )
+                return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
-            # 更新状态
+            # 4. 构建上下文切片
+            context_slice = await self._build_context_slice(state, current_target, sandbox_instance)
+
+            if context_slice is None:
+                error_msg = "无法构建上下文切片"
+                logger.error(error_msg)
+                runtime = state.get("runtime", {})
+                update_dict.update(
+                    {
+                        "runtime": {
+                            **runtime,
+                            "error": error_msg,
+                            "executed_nodes": [
+                                *runtime.get("executed_nodes", []),
+                                NodeName.CONTEXT_SLICE_BUILDER.value,
+                            ],
+                            "current_step": NodeName.CONTEXT_SLICE_BUILDER.value,
+                        },
+                    }
+                )
+                return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
+
+            # 5. 更新状态
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "editable_context": context_slice.model_dump(),
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        NodeName.CONTEXT_ASSEMBLER.value,
-                    ],
-                    "current_step": NodeName.CONTEXT_ASSEMBLER.value,
+                    "context": {
+                        "editable_context": context_slice.model_dump(),
+                    },
+                    "runtime": {
+                        **runtime,
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.CONTEXT_SLICE_BUILDER.value,
+                        ],
+                        "current_step": NodeName.CONTEXT_SLICE_BUILDER.value,
+                    },
                 }
             )
 
             logger.info(
-                f"上下文组装完成: {current_target.symbol_name} "
+                f"上下文切片构建完成: {current_target.symbol_name}, "
+                f"依赖: {len(context_slice.dependency_signatures)} 个"
             )
 
             # 发送完成事件
             await adispatch_custom_event(
                 ProcessStage.THINK_CHAIN.value,
                 {
-                    "status": NodeName.CONTEXT_ASSEMBLER.value,
-                    "progress": "上下文组装完成",
+                    "status": NodeName.CONTEXT_SLICE_BUILDER.value,
+                    "progress": "上下文切片构建完成",
                     "think_chain_item": {
-                        "type": NodeName.CONTEXT_ASSEMBLER.value,
-                        "title": "上下文组装",
+                        "type": NodeName.CONTEXT_SLICE_BUILDER.value,
+                        "title": "上下文切片构建",
                         "desc": f"目标: {current_target.symbol_name}, "
                                f"依赖: {len(context_slice.dependency_signatures)} 个",
                         "urls": [],
@@ -209,74 +207,75 @@ class ContextAssemblerAgentNode:
                 },
             )
 
-            return Command(update=update_dict, goto=NodeName.PLAN.value)
+            return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
 
         except Exception as e:
-            logger.error(f"上下文组装失败: {e}", exc_info=True)
+            logger.error(f"上下文切片构建失败: {e}", exc_info=True)
+            runtime = state.get("runtime", {})
             update_dict.update(
                 {
-                    "error": f"上下文组装失败: {str(e)}",
-                    "executed_nodes": [
-                        *state.get("executed_nodes", []),
-                        NodeName.CONTEXT_ASSEMBLER.value,
-                    ],
-                    "current_step": NodeName.CONTEXT_ASSEMBLER.value,
+                    "runtime": {
+                        **runtime,
+                        "error": f"上下文切片构建失败: {str(e)}",
+                        "executed_nodes": [
+                            *runtime.get("executed_nodes", []),
+                            NodeName.CONTEXT_SLICE_BUILDER.value,
+                        ],
+                        "current_step": NodeName.CONTEXT_SLICE_BUILDER.value,
+                    },
                 }
             )
 
-            return Command(update=update_dict, goto=NodeName.END.value)
+            return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
-    async def _assemble_context(
+    async def _build_context_slice(
         self,
         state: IssueProcessState,
         target: TargetContext,
         sandbox,
-        repo_path: str = None
     ) -> Optional[EditableContextSlice]:
         """
-        组装可编辑上下文切片
+        构建可编辑上下文切片
+        节点职责：编排 tools 调用，组装 EditableContextSlice
 
         Args:
             state: 当前工作流状态
             target: 目标符号
-            sandbox: 沙箱实例，用于读取文件
-            repo_path: Git 仓库在沙箱中的路径
+            sandbox: 沙箱实例
 
         Returns:
             可编辑上下文切片
         """
-        retrieved_code = state.get("retrieved_code", [])
+        # 获取检索结果
+        retrieval = state.get("retrieval", {})
+        retrieved_code = retrieval.get("retrieved_code", [])
 
         # 1. 从目标中获取文件路径和语言
         file_path = target.file_path
-        language = self._detect_language(file_path)
+        language = detect_language(file_path)
         
         # 2. 先从检索结果中获取 target_snippet
         target_snippet = self._find_target_snippet(target, retrieved_code)
         
-        # 3. 尝试从 Sandbox 读取完整文件内容
+        # 3. 从 Sandbox 读取完整文件内容
         content = None
         try:
-            # 创建 FileService 实例
+            # 直接使用 FileService 读取文件
             file_service = FileService(self.sandbox_manager, sandbox.id)
-            # 拼接完整路径：repo_path/file_path
-            full_path = f"{repo_path}/{file_path}" if repo_path else file_path
-            content = await file_service.read_file(full_path)
-            logger.info(f"从沙箱读取完整文件: {full_path}")
+            content = await file_service.read_file(file_path)
+            logger.info(f"从沙箱读取完整文件: {file_path}")
             
             # 更新 target_snippet 的内容为完整文件
             if target_snippet:
                 target_snippet["content"] = content
             else:
-                # 如果检索结果中没有，创建一个新的
                 target_snippet = {
                     "content": content,
                     "file_path": file_path,
                     "symbol_name": target.symbol_name,
                 }
         except Exception as e:
-            logger.warning(f"从沙箱读取文件失败 {full_path}: {e}, 使用检索片段")
-            # 回退：使用检索结果中的片段
+            logger.warning(f"从沙箱读取文件失败 {file_path}: {e}, 使用检索片段")
             if target_snippet:
                 content = target_snippet.get("content", "")
                 logger.info(f"使用检索片段作为回退")
@@ -284,14 +283,17 @@ class ContextAssemblerAgentNode:
                 logger.error(f"无法获取目标符号的代码: {target.symbol_name}")
                 return None
 
-        # 3. 解析 AST（基于完整文件内容）
-        ast_info = self.tree_sitter.parse_code(content, language, file_path)
-        if not ast_info:
-            logger.warning(f"无法解析 AST: {file_path}")
-            # 降级处理：使用原始内容
+        # 4. 解析 AST
+        try:
+            # 直接使用 tree_sitter_service 解析
+            ast_info = self.tree_sitter.parse_code(content, language, file_path)
+            if not ast_info:
+                raise Exception(f"无法解析 AST: language={language}")
+        except Exception as e:
+            logger.warning(f"无法解析 AST: {file_path}, {e}")
             return self._create_fallback_slice(target, target_snippet)
 
-        # 4. 提取目标符号的完整代码
+        # 5. 提取目标符号的完整代码
         target_symbol = self._find_symbol_in_ast(target.symbol_name, ast_info)
         if target_symbol:
             full_code = self._extract_symbol_code(content, target_symbol)
@@ -302,13 +304,20 @@ class ContextAssemblerAgentNode:
             editable_start = target.start_line
             editable_end = target.end_line
 
-        # 5. 分析依赖关系
-        dependency_graph = self.dependency_analyzer.analyze_dependencies(
-            [target_snippet],
-            {file_path: ast_info}
-        )
+        # 6. 分析依赖关系
+        try:
+            # 直接使用 dependency_analyzer 分析
+            # 构建 AST 信息字典
+            ast_infos = {file_path: ast_info}
+            dependency_graph = self.dependency_analyzer.analyze_dependencies(
+                snippets=[target_snippet],
+                ast_infos=ast_infos
+            )
+        except Exception as e:
+            logger.warning(f"依赖分析失败: {e}, 使用空依赖图")
+            dependency_graph = DependencyGraph()
 
-        # 6. 获取前向依赖的签名
+        # 7. 获取前向依赖的签名
         dependency_signatures = await self._get_dependency_signatures(
             target.symbol_name,
             dependency_graph,
@@ -316,24 +325,15 @@ class ContextAssemblerAgentNode:
             language
         )
 
-        # 7. 提取导入语句
+        # 8. 提取导入语句
         imports = self._extract_imports(ast_info)
 
-        # 8. 提取相关 Schema 定义
+        # 9. 提取相关 Schema 定义
         schema_definitions = await self._extract_schemas(
             retrieved_code,
             dependency_signatures,
             language
         )
-
-        # 9. 计算 Token 估算
-        total_chars = (
-            len(full_code) +
-            sum(len(sig.signature) + len(sig.docstring or "") for sig in dependency_signatures) +
-            sum(len(imp) for imp in imports) +
-            sum(len(s) for s in schema_definitions)
-        )
-        estimated_tokens = total_chars // self.chars_per_token
 
         # 10. 构建上下文切片
         context_slice = EditableContextSlice(
@@ -344,11 +344,14 @@ class ContextAssemblerAgentNode:
             schema_definitions=schema_definitions,
             editable_start_line=editable_start,
             editable_end_line=editable_end,
-            file_content=content,
-            estimated_tokens=estimated_tokens,
+            file_content=content
         )
 
         return context_slice
+
+    # ========================================================================
+    # Helper Methods (TODO: 考虑下沉到 tools 层)
+    # ========================================================================
 
     def _find_target_snippet(
         self,
@@ -554,21 +557,7 @@ class ContextAssemblerAgentNode:
             schema_definitions=[],
             editable_start_line=target.start_line,
             editable_end_line=target.end_line,
-            file_content=content,
-            estimated_tokens=len(content) // self.chars_per_token,
+            file_content=content
         )
 
-    def _detect_language(self, file_path: str) -> str:
-        """根据文件扩展名检测语言"""
-        ext = file_path.split(".")[-1].lower()
-        
-        lang_map = {
-            "py": "python",
-            "js": "javascript",
-            "ts": "typescript",
-            "tsx": "typescript",
-            "jsx": "javascript",
-        }
-        
-        return lang_map.get(ext, "python")
 

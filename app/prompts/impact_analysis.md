@@ -1,6 +1,6 @@
 ---
-CURRENT_TIME: {{ CURRENT_TIME }}
----
+
+## CURRENT_TIME: {{ CURRENT_TIME }}
 
 ## 系统角色
 
@@ -96,20 +96,42 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 ### 不需要扩散的情况
 
 1. **内部实现优化**: 仅优化内部实现，对外行为不变
+  - 性能优化、重构内部逻辑
+  - 修改内部 prompt、配置、常量等
+  - 优化错误处理、日志记录等
 2. **Bug 修复**: 修复了错误行为，调用方本就期望正确行为
 3. **添加可选参数**: 新参数有默认值，不影响现有调用
+4. **兼容性变更**: 修改前后对外接口完全一致
 
 ---
 
 ## 示例
 
-### 示例1：无需扩散
+### 示例1：无需扩散 - 内部优化
+
+**修改**: 优化了函数内部的 LLM prompt 文本
+
+**分析**: 这是纯内部实现优化，函数签名、返回值、行为逻辑完全不变
+
+**输出**:
+
+```json
+{
+  "callers_need_change": [],
+  "risk_level": "low",
+  "reasoning": "修改仅涉及函数内部的 prompt 文本优化，对外接口（函数签名、参数、返回值）完全不变。调用方无需任何修改，可以透明地使用优化后的实现。",
+  "test_suggestions": ["验证优化后的输出质量", "回归测试现有调用方"]
+}
+```
+
+### 示例2：无需扩散 - Bug 修复
 
 **修改**: 修复了计算逻辑的 Bug
 
 **分析**: Bug 修复不改变 API 契约，调用方本就期望正确结果
 
 **输出**:
+
 ```json
 {
   "callers_need_change": [],
@@ -119,24 +141,25 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 }
 ```
 
-### 示例2：需要扩散
+### 示例3：需要扩散
 
 **修改**: 函数返回值从 `dict` 改为 `list`
 
 **分析**: 返回类型变更，所有调用方都需要适配
 
 **输出**:
+
 ```json
 {
   "callers_need_change": [
     {
       "symbol_name": "OrderService.process_order",
       "file_path": "services/order.py",
-      "reason": "调用方使用了 dict 的 .get() 方法，需要改为列表索引"
+      "reason": "调用方使用了 result.get('order_id') 访问返回值，需要改为 result[0]['order_id'] 列表索引方式"
     }
   ],
   "risk_level": "high",
-  "reasoning": "返回类型从 dict 改为 list 是破坏性变更，所有使用字典方法访问返回值的调用方都需要修改。",
+  "reasoning": "返回类型从 dict 改为 list 是破坏性变更，所有使用字典方法访问返回值的调用方都需要修改代码。",
   "test_suggestions": ["验证所有调用方是否正确处理新的返回类型", "集成测试端到端流程"]
 }
 ```
@@ -145,8 +168,14 @@ CURRENT_TIME: {{ CURRENT_TIME }}
 
 ## 注意事项
 
-1. **保守判断**: 如果不确定是否需要修改，倾向于标记为需要检查
-2. **具体原因**: callers_need_change 中必须说明具体的修改原因
+1. **严格判断**: 只有在**确认需要修改调用方代码**时才加入 callers_need_change
+  - ⚠️ 不是"需要检查"，而是"必须修改代码"
+  - ⚠️ 如果只是内部实现变更，API 契约不变，则 callers_need_change 应为空数组
+  - ⚠️ 修改 prompt、日志、注释等不影响 API 的情况，不需要扩散
+2. **具体原因**: callers_need_change 中必须说明**具体的代码修改点**
 3. **风险评估**: risk_level 应反映整体影响的严重程度
+  - `low`: 对外接口无变化，调用方无需任何修改
+  - `medium`: 可能需要调整个别调用方
+  - `high`: 多数调用方必须修改才能正常工作
 4. **JSON格式**: 输出必须是有效的 JSON
 

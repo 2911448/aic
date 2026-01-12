@@ -40,11 +40,13 @@ async def index_project(
     project_name: str,
     file_extensions: list[str] = None,
     exclude_dirs: list[str] = None,
+    use_gitignore: bool = True,
 ):
     """索引项目代码"""
     logger.info("=" * 60)
     logger.info(f"开始索引项目: {project_name}")
     logger.info(f"项目路径: {project_path}")
+    logger.info(f"使用 .gitignore: {use_gitignore}")
     if exclude_dirs:
         logger.info(f"额外排除的目录: {', '.join(exclude_dirs)}")
     logger.info("=" * 60)
@@ -55,6 +57,7 @@ async def index_project(
             project_name=project_name,
             file_extensions=file_extensions,
             exclude_dirs=exclude_dirs,
+            use_gitignore=use_gitignore,
         )
         logger.info(f"✅ 索引完成，共插入 {count} 条代码片段")
     except Exception as e:
@@ -135,7 +138,12 @@ async def main():
     index_parser.add_argument(
         "--exclude",
         nargs="+",
-        help="额外排除的目录（会合并到默认排除列表）",
+        help="额外排除的目录（会与 .gitignore 合并）",
+    )
+    index_parser.add_argument(
+        "--no-gitignore",
+        action="store_true",
+        help="不使用 .gitignore 规则",
     )
 
     # 搜索代码命令
@@ -164,6 +172,7 @@ async def main():
             project_name=args.name,
             file_extensions=args.ext,
             exclude_dirs=args.exclude,
+            use_gitignore=not args.no_gitignore,
         )
     elif args.command == "search":
         await search_code(

@@ -125,36 +125,55 @@ class WebhookService:
 
         result = {}  # 初始化 result，以便在 finally 中访问
         try:
-            from app.graph.workflow import create_issue_workflow
-            from app.graph.state import IssueProcessState
+            from app.graph.workflows.issue_workflow import create_issue_workflow
+            from app.graph.state import IssueProcessState, init_state_defaults
 
             # 构造初始状态
             initial_state: IssueProcessState = {
                 "issue_data": issue,
                 "project_info": project.model_dump(),
-                "issue_type": None,
-                "search_queries": [],
-                "retrieved_code": [],
-                "code_scope": None,
-                "patch": None,
-                "patch_files": [],
-                "verification_result": None,
-                "executed_nodes": [],
-                "current_step": "init",
-                "error": None,
-                "completed": False,
+                # 初始化所有分域（通过 helper 函数）
+                "sandbox": {},
+                "analysis": {"search_queries": []},
+                "retrieval": {"retrieved_code": []},
+                "targeting": {
+                    "target_queue": [],
+                    "current_expansion_depth": 0,
+                    "max_expansion_depth": 3,
+                },
+                "context": {},
+                "patching": {
+                    "patch_candidates": [],
+                    "generated_patches": {},
+                    "patch_retry_count": 0,
+                    "retry_history": [],
+                },
+                "verification": {"verification_results_by_candidate": {}},
+                "impact": {},
+                "review": {},
+                "delivery": {},
+                "runtime": {
+                    "executed_nodes": [],
+                    "current_step": "init",
+                    "error": None,
+                    "completed": False,
+                },
             }
+
+            # 初始化默认值
+            initial_state = init_state_defaults(initial_state)
 
             # 创建并执行工作流
             workflow = create_issue_workflow()
             result = await workflow.ainvoke(
                 initial_state,
-                config={"recursion_limit": 50}
+                config={"recursion_limit": 100}  # 增加递归限制以支持更复杂的流程
             )
 
-            # 检查执行结果
-            executed_nodes = result.get("executed_nodes", [])
-            error = result.get("error")
+            # 检查执行结果（从分域结构）
+            runtime = result.get("runtime", {})
+            executed_nodes = runtime.get("executed_nodes", [])
+            error = runtime.get("error")
 
             logger.info(
                 f"Workflow完成 | "
@@ -192,15 +211,20 @@ class WebhookService:
                 project_path=project.path_with_namespace,
             )
         finally:
-            # 清理 Sandbox 资源
-            sandbox_id = result.get("sandbox_id")
-            if sandbox_id:
+            # Sandbox 清理由 SandboxTeardown 节点统一管理
+            # 这里只做兜底检查：如果 workflow 未正常完成且 sandbox 未被销毁
+            sandbox_info = result.get("sandbox", {})
+            sandbox_id = sandbox_info.get("sandbox_id")
+            teardown_status = sandbox_info.get("teardown_status")
+            
+            # 只有当 workflow 未走到 teardown 时才兜底清理
+            if sandbox_id and not teardown_status:
                 try:
-                    logger.info(f"正在销毁沙箱: {sandbox_id}")
+                    logger.warning(f"Workflow 未正常完成 teardown，兜底销毁沙箱: {sandbox_id}")
                     sandbox_manager = get_sandbox_manager()
                     await sandbox_manager.destroy_sandbox(sandbox_id)
                 except Exception as cleanup_error:
-                    logger.warning(f"沙箱 {sandbox_id} 销毁失败: {cleanup_error}")
+                    logger.error(f"兜底销毁沙箱 {sandbox_id} 失败: {cleanup_error}")
 
     async def _process_note_event(
         self,

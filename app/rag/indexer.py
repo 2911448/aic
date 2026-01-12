@@ -9,6 +9,11 @@ from app.rag.code_parser import CodeParser
 from app.rag.embedding import embedding_service
 from app.core.milvus import milvus_service
 from app.core.logger_config import logger
+from app.utils.gitignore_parser import (
+    get_default_ignore_patterns,
+    parse_gitignore_content,
+    should_ignore_path,
+)
 
 
 class CodeIndexer:
@@ -86,6 +91,7 @@ class CodeIndexer:
         project_name: str,
         file_extensions: list[str] | None = None,
         exclude_dirs: list[str] | None = None,
+        use_gitignore: bool = True,
     ) -> int:
         """
         索引整个目录的代码文件
@@ -102,96 +108,50 @@ class CodeIndexer:
         if file_extensions is None:
             file_extensions = list(CodeParser.SUPPORTED_LANGUAGES.keys())
 
-        # 默认排除目录
-        default_exclude_dirs = [
-            # 版本控制
-            ".git",
-            ".svn",
-            ".hg",
-            # Python
-            ".venv",
-            "venv",
-            "env",
-            "__pycache__",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            ".tox",
-            "*.egg-info",
-            ".eggs",
-            # JavaScript/Node
-            "node_modules",
-            ".npm",
-            ".yarn",
-            ".pnp",
-            # 构建产物
-            "dist",
-            "build",
-            "target",
-            "out",
-            ".next",
-            ".nuxt",
-            ".output",
-            # IDE
-            ".vscode",
-            ".idea",
-            ".cursor",
-            # 其他
-            "coverage",
-            ".coverage",
-            "htmlcov",
-            "logs",
-            "tmp",
-            "temp",
-        ]
-
-        # 合并用户自定义的排除目录
-        if exclude_dirs:
-            all_exclude_dirs = list(set(default_exclude_dirs + exclude_dirs))
-        else:
-            all_exclude_dirs = default_exclude_dirs
-
-        # 需要忽略的文件模式
-        exclude_files = {
-            ".DS_Store",
-            "Thumbs.db",
-            ".pyc",
-            ".pyo",
-            ".pyd",
-            ".so",
-            ".dll",
-            ".dylib",
-            ".lock",
-            "package-lock.json",
-            "yarn.lock",
-            "pnpm-lock.yaml",
-            "poetry.lock",
-            "Pipfile.lock",
-            "uv.lock",
-        }
+        # 加载忽略规则
+        ignore_patterns = self._load_ignore_patterns(
+            directory=directory,
+            use_gitignore=use_gitignore,
+            extra_exclude_dirs=exclude_dirs
+        )
 
         total_count = 0
-        directory_path = Path(directory)
 
         logger.info(f"开始索引目录: {directory}")
         logger.info(f"项目名称: {project_name}")
         logger.info(f"支持的文件类型: {file_extensions}")
-        logger.info(f"忽略的目录数: {len(all_exclude_dirs)}")
+        logger.info(f"加载 {len(ignore_patterns)} 条忽略规则")
 
         # 递归遍历目录
         for root, dirs, files in os.walk(directory):
-            # 过滤排除的目录
-            dirs[:] = [
-                d for d in dirs if d not in all_exclude_dirs and not d.startswith(".")
-            ]
+            # 过滤排除的目录（需要在原地修改 dirs 列表）
+            filtered_dirs = []
+            for d in dirs:
+                dir_path = os.path.join(root, d)
+                # 跳过隐藏目录
+                if d.startswith("."):
+                    continue
+                # 检查是否应该忽略
+                if should_ignore_path(dir_path, ignore_patterns, directory):
+                    logger.debug(f"忽略目录: {dir_path}")
+                    continue
+                filtered_dirs.append(d)
+            
+            dirs[:] = filtered_dirs
 
             # 处理每个代码文件
             for file in files:
-                # 跳过隐藏文件和排除的文件
-                if file.startswith(".") or file in exclude_files:
+                # 跳过隐藏文件
+                if file.startswith("."):
                     continue
 
                 file_path = os.path.join(root, file)
+                
+                # 检查是否应该忽略该文件
+                if should_ignore_path(file_path, ignore_patterns, directory):
+                    logger.debug(f"忽略文件: {file_path}")
+                    continue
+                
                 file_ext = Path(file_path).suffix.lower()
 
                 if file_ext in file_extensions:
@@ -265,6 +225,48 @@ class CodeIndexer:
             logger.error(f"搜索代码失败: {e}")
             raise
 
+    def _load_ignore_patterns(
+        self,
+        directory: str,
+        use_gitignore: bool,
+        extra_exclude_dirs: list[str] | None = None
+    ) -> list[str]:
+        """
+        加载忽略规则
+        
+        Args:
+            directory: 目录路径
+            use_gitignore: 是否使用 .gitignore
+            extra_exclude_dirs: 额外的排除目录
+        
+        Returns:
+            忽略规则列表
+        """
+        # 从默认规则开始
+        patterns = get_default_ignore_patterns()
+        
+        # 读取 .gitignore
+        if use_gitignore:
+            gitignore_path = os.path.join(directory, ".gitignore")
+            if os.path.exists(gitignore_path):
+                try:
+                    with open(gitignore_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    
+                    gitignore_patterns = parse_gitignore_content(content)
+                    patterns.extend(gitignore_patterns)
+                    
+                    logger.info(f"从 .gitignore 读取到 {len(gitignore_patterns)} 条规则")
+                except Exception as e:
+                    logger.warning(f"读取 .gitignore 失败: {e}")
+        
+        # 添加额外的排除目录
+        if extra_exclude_dirs:
+            patterns.extend(extra_exclude_dirs)
+            logger.info(f"添加 {len(extra_exclude_dirs)} 条额外排除规则")
+        
+        return patterns
+    
     def initialize_database(self, drop_existing: bool = False):
         """
         初始化数据库（创建集合）
