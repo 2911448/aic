@@ -10,6 +10,7 @@ from typing import Literal
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langgraph.types import Command
 
+from app.config.app_config import app_config
 from app.core.logger_config import logger
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
 
@@ -201,12 +202,15 @@ class MainRouterNode:
             warning_count = final_verification.get("warning_count", 0)
             refine_retry_count = verification.get("refine_retry_count", 0)
             
+            # 从配置中读取最大重试次数
+            max_refine_retry = app_config.workflow.max_refine_retry_count
+            
             if not verification_passed:
                 # 有 error 需要修复
-                if refine_retry_count < 3:
+                if refine_retry_count < max_refine_retry:
                     logger.info(
                         f"MainRouter: 验证失败（{error_count} 个 errors），"
-                        f"进入修复循环 ({refine_retry_count + 1}/3) → RefineAgent"
+                        f"进入修复循环 ({refine_retry_count + 1}/{max_refine_retry}) → RefineAgent"
                     )
                     update_dict["runtime"] = {
                         **runtime,
@@ -214,7 +218,7 @@ class MainRouterNode:
                     }
                     return Command(update=update_dict, goto=NodeName.REFINE_AGENT.value)
                 else:
-                    error_msg = f"验证失败（{error_count} 个 errors）且已达到最大修复次数 (3)"
+                    error_msg = f"验证失败（{error_count} 个 errors）且已达到最大修复次数 ({max_refine_retry})"
                     logger.error(f"MainRouter: {error_msg}")
                     update_dict["runtime"] = {
                         **runtime,

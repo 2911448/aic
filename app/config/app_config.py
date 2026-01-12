@@ -86,6 +86,14 @@ class GitLabConfig(BaseModel):
     verify_ssl: bool = True
 
 
+class WorkflowConfig(BaseModel):
+    """工作流配置"""
+
+    max_refine_retry_count: int = Field(
+        default=5, description="验证失败时的最大修复重试次数"
+    )
+
+
 class AppConfig(BaseModel):
     app_name: str
     bailian: BailianConfig
@@ -96,6 +104,9 @@ class AppConfig(BaseModel):
         default_factory=SandboxConfig, description="沙箱环境配置"
     )
     gitlab: GitLabConfig
+    workflow: WorkflowConfig = Field(
+        default_factory=WorkflowConfig, description="工作流配置"
+    )
 
     @classmethod
     def load_config(cls):
