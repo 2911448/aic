@@ -13,6 +13,7 @@ from langchain_core.callbacks.manager import adispatch_custom_event
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from app.config.app_config import app_config
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
@@ -43,8 +44,6 @@ class RefineOutput(BaseModel):
 
 class RefineAgentNode:
     """批处理修复循环节点（使用 LangChain Agent）"""
-
-    MAX_RETRY_COUNT = 3  # 最大重试次数
 
     def __init__(self):
         """初始化节点"""
@@ -96,8 +95,11 @@ class RefineAgentNode:
             verification = state.get("verification", {})
             refine_retry_count = verification.get("refine_retry_count", 0)
             
-            if refine_retry_count >= self.MAX_RETRY_COUNT:
-                error_msg = f"已达到最大修复次数 ({self.MAX_RETRY_COUNT})"
+            # 从配置中获取最大重试次数
+            max_retry_count = app_config.workflow.max_refine_retry_count
+            
+            if refine_retry_count >= max_retry_count:
+                error_msg = f"已达到最大修复次数 ({max_retry_count})"
                 logger.warning(error_msg)
                 return self._abort_with_error(state, error_msg)
             
@@ -127,9 +129,12 @@ class RefineAgentNode:
             # 按文件分组
             issues_by_file = self._group_issues_by_file(error_issues)
             
+            # 从配置中获取最大重试次数（用于日志显示）
+            max_retry_count = app_config.workflow.max_refine_retry_count
+            
             logger.info(
                 f"开始修复 {len(issues_by_file)} 个文件的 {len(error_issues)} 个错误 "
-                f"(第 {refine_retry_count + 1}/{self.MAX_RETRY_COUNT} 轮)"
+                f"(第 {refine_retry_count + 1}/{max_retry_count} 轮)"
             )
             
             # 批量生成修复

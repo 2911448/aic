@@ -51,7 +51,7 @@ class ToolRegistry:
                 "parse_ast",
                 "search_symbol",
                 "check_syntax",
-                "run_command",  # 执行任意命令（ruff, mypy 等）
+                "run_command",  # 执行任意命令
             ],
             
             # Refine Agent: 需要读文件、代码质量检查
@@ -61,24 +61,6 @@ class ToolRegistry:
                 "search_symbol",
                 "analyze_dependencies",
                 "check_syntax",
-                "run_command",  # 执行任意命令（ruff, mypy 等）
-            ],
-            
-            # Verification Agent: 需要语法/质量检查、可选命令
-            "verification": [
-                "check_syntax",
-                "read_file",
-                "parse_ast",
-                "search_symbol",
-                "run_command",  # 执行任意命令（ruff, mypy 等）
-            ],
-            
-            # Context Slice Builder: 需要读文件、解析 AST、依赖分析
-            "context_builder": [
-                "read_file",
-                "parse_ast",
-                "search_symbol",
-                "analyze_dependencies",
                 "run_command",  # 执行任意命令
             ],
             
@@ -96,7 +78,7 @@ class ToolRegistry:
         获取指定 Agent 可用的工具列表
         
         Args:
-            agent_name: Agent 名称（patch_writer, refine, verification 等）
+            agent_name: Agent 名称（patch_writer, refine, entry_selector）
         
         Returns:
             工具函数列表
