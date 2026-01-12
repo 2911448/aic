@@ -126,7 +126,7 @@ class Settings(BaseSettings):
 
     app_name: str = "AIC - AI Code Assistant"
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 9000
     debug: bool = True
     api_prefix: str = "/api/v1"
 
