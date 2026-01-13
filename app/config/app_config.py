@@ -1,6 +1,6 @@
 import os
-from typing import Literal
-
+from typing import Literal, Optional, Dict, List
+from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import yaml
@@ -28,14 +28,6 @@ class MilvusConfig(BaseModel):
 
 class LogConfig(BaseModel):
     path: str
-
-
-class GPTModelsConfig(BaseModel):
-    model: str
-    base_url: str
-    api_key: str
-    timeout: int = 30
-    max_retries: int = 3
 
 
 class SandboxDockerConfig(BaseModel):
@@ -99,7 +91,7 @@ class AppConfig(BaseModel):
     bailian: BailianConfig
     milvus: MilvusConfig
     log: LogConfig
-    gpt_models: GPTModelsConfig
+    llm_models: Optional[Dict[str, Dict[str, Any]]] = None
     sandbox: SandboxConfig = Field(
         default_factory=SandboxConfig, description="沙箱环境配置"
     )

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
-from app.llms.llm_factory import get_gpt_model
+from app.llms.llm_factory import get_llm_model
 from app.utils.tree_sitter_service import tree_sitter_service
 from app.schemas.context_assembly import (
     EntrySelectionResult,
@@ -215,7 +215,7 @@ class EntrySelectorAgentNode:
 
         try:
             # 4. 构建 Agent 实例
-            llm = await get_gpt_model(temperature=0.1)
+            llm = await get_llm_model(model_name="gpt-5-2025-08-07", temperature=0.1)
             agent = create_agent(
                 model=llm,
                 tools=self.tools,

@@ -115,15 +115,45 @@ async def read_latest_code_from_sandbox(
 
 def detect_language(file_path: str, default: str = "python") -> str:
     """
-    从文件路径检测编程语言
+    从文件路径检测编程语言或文件类型
     
     Args:
-        file_path: 文件路径（如 "app/main.py" 或 "src/index.ts"）
+        file_path: 文件路径（如 "app/main.py" 或 "src/index.ts" 或 "pyproject.toml"）
         default: 未识别时的默认语言，默认为 "python"
     
     Returns:
-        语言标识符（python, javascript, typescript 等）
+        语言标识符（python, javascript, typescript, yaml, markdown 等）
     """
+    # 获取文件名（用于特殊文件判断）
+    filename = os.path.basename(file_path).lower()
+    
+    # 特殊文件名优先匹配（精确匹配）
+    special_files = {
+        "requirements.txt": "python-requirements",
+        "package.json": "node-dependencies",
+        "package-lock.json": "node-lock",
+        "cargo.toml": "rust-dependencies",
+        "cargo.lock": "rust-lock",
+        "go.mod": "go-dependencies",
+        "go.sum": "go-lock",
+        "pyproject.toml": "python-project",
+        "poetry.lock": "python-lock",
+        "pipfile": "python-dependencies",
+        "pipfile.lock": "python-lock",
+        "gemfile": "ruby-dependencies",
+        "gemfile.lock": "ruby-lock",
+        "composer.json": "php-dependencies",
+        "composer.lock": "php-lock",
+        "dockerfile": "dockerfile",
+        ".dockerignore": "dockerignore",
+        "readme.md": "readme",
+        "readme.txt": "readme",
+        "readme": "readme",
+    }
+    
+    if filename in special_files:
+        return special_files[filename]
+    
     # 支持带点的扩展名检测
     if "." not in file_path:
         return default
@@ -131,6 +161,7 @@ def detect_language(file_path: str, default: str = "python") -> str:
     ext = "." + file_path.split(".")[-1].lower()
     
     language_map = {
+        # 编程语言
         ".py": "python",
         ".js": "javascript",
         ".ts": "typescript",
@@ -153,5 +184,26 @@ def detect_language(file_path: str, default: str = "python") -> str:
         ".cs": "csharp",
         ".sh": "shell",
         ".bash": "shell",
+        
+        # 配置文件
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".toml": "toml",
+        ".json": "json",
+        ".ini": "ini",
+        ".conf": "config",
+        ".cfg": "config",
+        ".xml": "xml",
+        
+        # 文档文件
+        ".md": "markdown",
+        ".txt": "text",
+        ".rst": "restructuredtext",
+        ".adoc": "asciidoc",
+        
+        # 其他
+        ".sql": "sql",
+        ".graphql": "graphql",
+        ".proto": "protobuf",
     }
     return language_map.get(ext, default)

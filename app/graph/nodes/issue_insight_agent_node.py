@@ -11,7 +11,7 @@ from langgraph.types import Command
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
-from app.llms.llm_factory import get_gpt_model
+from app.llms.llm_factory import get_llm_model
 from app.schemas.issue_analysis import IssueAnalysis
 from app.utils.common_function import parse_json_response
 
@@ -143,7 +143,7 @@ class IssueInsightAgentNode:
         if labels and isinstance(labels[0], dict):
             labels = [label.get("title", "") for label in labels]
 
-        llm = await get_gpt_model()
+        llm = await get_llm_model(model_name="gpt-5-2025-08-07")
 
         # 渲染统一prompt
         prompt = self.prompt_manager.render(

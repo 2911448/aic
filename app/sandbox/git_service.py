@@ -173,7 +173,7 @@ class GitService:
         )
 
         if "exists" in check_result.stdout:
-            logger.info(f"沙箱 {self._sandbox_id}: 目录 {repo_path} 已存在，正在清理...")
+            logger.info(f"沙箱 {self._sandbox_id}: 目录 {repo_path} 已存在，正在清理")
             await self._execute(f'rm -rf "{repo_path}"', check=False)
 
         # 获取沙箱的 git_auth 配置
@@ -237,10 +237,6 @@ class GitService:
             if pwd_result.success:
                 absolute_repo_path = pwd_result.stdout.strip()
                 await self._manager.set_sandbox_working_dir(self._sandbox_id, absolute_repo_path)
-
-            logger.info(
-                f"沙箱 {self._sandbox_id}: 克隆成功, commit={commit_hash[:8] if commit_hash else 'unknown'}"
-            )
 
             return CloneResult(
                 success=True,

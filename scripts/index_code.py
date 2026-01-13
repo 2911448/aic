@@ -42,7 +42,7 @@ async def index_project(
     exclude_dirs: list[str] = None,
     use_gitignore: bool = True,
 ):
-    """索引项目代码"""
+    """索引项目代码和配置文件（使用 LLM 生成摘要）"""
     logger.info("=" * 60)
     logger.info(f"开始索引项目: {project_name}")
     logger.info(f"项目路径: {project_path}")
@@ -68,13 +68,77 @@ async def index_project(
         milvus_service.close()
 
 
+async def check_project(project_name: str):
+    """检查项目是否已在向量库中"""
+    logger.info("=" * 60)
+    logger.info(f"检查项目: {project_name}")
+    logger.info("=" * 60)
+
+    try:
+        exists = await code_indexer.check_project_exists(project_name)
+        
+        if exists:
+            print(f"✅ 项目 '{project_name}' 已存在于向量库中")
+        else:
+            print(f"❌ 项目 '{project_name}' 不存在于向量库中")
+        
+        return exists
+
+    except Exception as e:
+        logger.error(f"❌ 检查项目失败: {e}")
+        raise
+    finally:
+        # 关闭数据库连接
+        milvus_service.close()
+
+
+async def reindex_project(
+    project_path: str,
+    project_name: str,
+):
+    """重新索引项目（删除旧数据，重新索引，使用 LLM 生成摘要）"""
+    logger.info("=" * 60)
+    logger.info(f"重新索引项目: {project_name}")
+    logger.info(f"项目路径: {project_path}")
+    logger.info("=" * 60)
+
+    try:
+        # 删除项目的旧数据
+        logger.info(f"正在删除项目 {project_name} 的旧数据...")
+        # 注意：这里需要 milvus_service 支持按项目删除，暂时通过重新索引来覆盖
+        
+        # 重新索引整个项目
+        count = await code_indexer.index_directory(
+            directory=project_path,
+            project_name=project_name,
+            use_gitignore=True,
+        )
+        
+        logger.info(f"✅ 重新索引完成，共插入 {count} 条代码片段")
+
+    except Exception as e:
+        logger.error(f"❌ 重新索引失败: {e}")
+        raise
+    finally:
+        # 关闭数据库连接
+        milvus_service.close()
+
+
 async def search_code(
-    query: str, top_k: int = 5, language: str = None, use_summary: bool = True
+    query: str,
+    top_k: int = 5,
+    language: str = None,
+    project_name: str = None,
+    use_summary: bool = True,
 ):
     """搜索代码"""
     logger.info("=" * 60)
     logger.info(f"搜索查询: {query}")
     logger.info(f"搜索模式: {'摘要向量' if use_summary else '完整代码向量'}")
+    if project_name:
+        logger.info(f"限定项目: {project_name}")
+    if language:
+        logger.info(f"限定语言: {language}")
     logger.info("=" * 60)
 
     try:
@@ -82,6 +146,7 @@ async def search_code(
             query=query,
             top_k=top_k,
             language=language,
+            project_name=project_name,
             use_summary=use_summary,
         )
 
@@ -127,7 +192,7 @@ async def main():
     )
 
     # 索引项目命令
-    index_parser = subparsers.add_parser("index", help="索引项目代码")
+    index_parser = subparsers.add_parser("index", help="索引项目代码和配置文件（使用 LLM 生成摘要）")
     index_parser.add_argument("path", help="项目路径")
     index_parser.add_argument("--name", required=True, help="项目名称")
     index_parser.add_argument(
@@ -146,11 +211,21 @@ async def main():
         help="不使用 .gitignore 规则",
     )
 
+    # 检查项目命令
+    check_parser = subparsers.add_parser("check", help="检查项目是否已在向量库中")
+    check_parser.add_argument("name", help="项目名称")
+
+    # 重新索引命令
+    reindex_parser = subparsers.add_parser("reindex", help="重新索引项目（删除旧数据，使用 LLM 生成摘要）")
+    reindex_parser.add_argument("path", help="项目路径")
+    reindex_parser.add_argument("--name", required=True, help="项目名称")
+
     # 搜索代码命令
     search_parser = subparsers.add_parser("search", help="搜索代码")
     search_parser.add_argument("query", help="搜索查询")
     search_parser.add_argument("--top-k", type=int, default=5, help="返回结果数量")
     search_parser.add_argument("--lang", help="过滤编程语言")
+    search_parser.add_argument("--project", help="过滤项目名称")
     search_parser.add_argument(
         "--mode",
         choices=["summary", "content"],
@@ -174,11 +249,19 @@ async def main():
             exclude_dirs=args.exclude,
             use_gitignore=not args.no_gitignore,
         )
+    elif args.command == "check":
+        await check_project(project_name=args.name)
+    elif args.command == "reindex":
+        await reindex_project(
+            project_path=args.path,
+            project_name=args.name,
+        )
     elif args.command == "search":
         await search_code(
             query=args.query,
             top_k=args.top_k,
             language=args.lang,
+            project_name=args.project,
             use_summary=(args.mode == "summary"),
         )
 

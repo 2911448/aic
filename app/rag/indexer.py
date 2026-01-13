@@ -6,9 +6,12 @@ import os
 from pathlib import Path
 
 from app.rag.code_parser import CodeParser
+from app.rag.config_parser import ConfigFileParser
+from app.rag.summary_generator import summary_generator
 from app.rag.embedding import embedding_service
 from app.core.milvus import milvus_service
 from app.core.logger_config import logger
+from app.utils.common_function import detect_language
 from app.utils.gitignore_parser import (
     get_default_ignore_patterns,
     parse_gitignore_content,
@@ -21,6 +24,8 @@ class CodeIndexer:
 
     def __init__(self):
         self.parser = CodeParser()
+        self.config_parser = ConfigFileParser()
+        self.summary_generator = summary_generator
         self.embedding_service = embedding_service
         self.milvus_service = milvus_service
 
@@ -31,10 +36,10 @@ class CodeIndexer:
         project_root: str | None = None,
     ) -> int:
         """
-        索引单个代码文件
+        索引单个文件（代码文件或配置文件）
 
         Args:
-            file_path: 代码文件路径
+            file_path: 文件路径
             project_name: 项目名称
             project_root: 项目根目录
 
@@ -42,16 +47,41 @@ class CodeIndexer:
             插入的代码片段数量
         """
         try:
-            # 1. 解析代码文件
-            logger.info(f"正在解析文件: {file_path}")
-            snippets = self.parser.parse_file(file_path, project_name, project_root)
+            # 计算相对路径
+            if project_root:
+                try:
+                    relative_path = os.path.relpath(file_path, project_root)
+                except ValueError:
+                    relative_path = file_path
+            else:
+                relative_path = file_path
+
+            # 检测文件类型
+            language = detect_language(file_path)
+            
+            # 1. 解析文件（代码或配置）
+            logger.info(f"正在解析文件: {file_path} (类型: {language})")
+            
+            if self.config_parser.is_config_file(file_path):
+                # 配置/文档文件
+                snippets = await self.config_parser.parse(
+                    file_path, project_name, relative_path
+                )
+            else:
+                # 代码文件
+                snippets = self.parser.parse_file(
+                    file_path, project_name, project_root
+                )
 
             if not snippets:
                 logger.warning(f"文件中没有提取到代码片段: {file_path}")
                 return 0
 
-            # 2. 批量向量化 content 和 summary
-            logger.info(f"正在向量化 {len(snippets)} 个代码片段的内容和摘要...")
+            # 2. 使用 LLM 生成 summary
+            await self._generate_summaries_for_snippets(snippets)
+
+            # 3. 批量向量化 content 和 summary
+            logger.info(f"正在向量化 {len(snippets)} 个代码片段的内容和摘要")
 
             # 准备需要向量化的文本：先content，再summary
             content_texts = [snippet.content for snippet in snippets]
@@ -69,12 +99,12 @@ class CodeIndexer:
             content_embeddings = all_embeddings[: len(snippets)]
             summary_embeddings = all_embeddings[len(snippets) :]
 
-            # 3. 将向量赋值给代码片段
+            # 4. 将向量赋值给代码片段
             for i, snippet in enumerate(snippets):
                 snippet.embedding = content_embeddings[i]
                 snippet.summary_embedding = summary_embeddings[i]
 
-            # 4. Upsert到Milvus（自动去重：删除旧数据，插入新数据）
+            # 5. Upsert到Milvus（自动去重：删除旧数据，插入新数据）
             logger.info(f"正在更新 {len(snippets)} 个代码片段到Milvus...")
             ids = self.milvus_service.upsert_snippets(snippets)
 
@@ -94,19 +124,21 @@ class CodeIndexer:
         use_gitignore: bool = True,
     ) -> int:
         """
-        索引整个目录的代码文件
+        索引整个目录的代码文件和配置文件
 
         Args:
             directory: 目录路径
             project_name: 项目名称
             file_extensions: 要索引的文件扩展名列表，None表示所有支持的类型
             exclude_dirs: 额外要排除的目录名列表，会合并到默认排除列表
+            use_gitignore: 是否使用 .gitignore
 
         Returns:
             插入的代码片段总数
         """
         if file_extensions is None:
-            file_extensions = list(CodeParser.SUPPORTED_LANGUAGES.keys())
+            # 支持更多文件类型
+            file_extensions = self._get_supported_file_extensions()
 
         # 加载忽略规则
         ignore_patterns = self._load_ignore_patterns(
@@ -117,10 +149,7 @@ class CodeIndexer:
 
         total_count = 0
 
-        logger.info(f"开始索引目录: {directory}")
-        logger.info(f"项目名称: {project_name}")
-        logger.info(f"支持的文件类型: {file_extensions}")
-        logger.info(f"加载 {len(ignore_patterns)} 条忽略规则")
+        logger.info(f"开始索引目录: {directory}, 项目名称: {project_name}")
 
         # 递归遍历目录
         for root, dirs, files in os.walk(directory):
@@ -139,7 +168,7 @@ class CodeIndexer:
             
             dirs[:] = filtered_dirs
 
-            # 处理每个代码文件
+            # 处理每个文件
             for file in files:
                 # 跳过隐藏文件
                 if file.startswith("."):
@@ -147,14 +176,21 @@ class CodeIndexer:
 
                 file_path = os.path.join(root, file)
                 
-                # 检查是否应该忽略该文件
+                # 检查是否应该跳过该文件（.lock 等）
+                if self.config_parser.should_skip_file(file_path):
+                    logger.debug(f"跳过文件: {file_path}")
+                    continue
+                
+                # 检查是否应该忽略该文件（gitignore 规则）
                 if should_ignore_path(file_path, ignore_patterns, directory):
                     logger.debug(f"忽略文件: {file_path}")
                     continue
                 
                 file_ext = Path(file_path).suffix.lower()
+                filename = os.path.basename(file_path).lower()
 
-                if file_ext in file_extensions:
+                # 检查是否为支持的文件类型（通过扩展名或文件名）
+                if file_ext in file_extensions or self._is_special_file(filename):
                     try:
                         count = await self.index_file(
                             file_path=file_path,
@@ -267,6 +303,130 @@ class CodeIndexer:
         
         return patterns
     
+    async def check_project_exists(self, project_name: str) -> bool:
+        """
+        检查项目是否已在向量库中
+
+        Args:
+            project_name: 项目名称
+
+        Returns:
+            是否存在
+        """
+        try:
+            if not self.milvus_service.client:
+                self.milvus_service.connect()
+
+            # 查询项目是否存在
+            filter_expr = f'project_name == "{project_name}"'
+            results = self.milvus_service.client.query(
+                collection_name=self.milvus_service.collection_name,
+                filter=filter_expr,
+                output_fields=["id"],
+                limit=1,
+            )
+
+            exists = len(results) > 0
+            logger.info(f"项目 {project_name} {'已存在' if exists else '不存在'}于向量库")
+            return exists
+
+        except Exception as e:
+            logger.error(f"检查项目是否存在失败: {e}")
+            return False
+
+    async def _generate_summaries_for_snippets(self, snippets: list) -> None:
+        """
+        为代码片段批量生成 LLM 摘要
+
+        Args:
+            snippets: 代码片段列表（会就地修改 summary 字段）
+        """
+        # 收集需要生成摘要的片段
+        items_to_generate = []
+        indices_to_update = []
+
+        for i, snippet in enumerate(snippets):
+            # 如果已有摘要，跳过
+            if snippet.summary:
+                continue
+
+            # 确定文件类型
+            file_category = self.config_parser.get_file_category(snippet.language)
+
+            items_to_generate.append({
+                "content": snippet.content,
+                "file_type": file_category,
+                "language": snippet.language,
+                "symbol_name": snippet.symbol_name,
+                "file_path": snippet.file_path,
+            })
+            indices_to_update.append(i)
+
+        if not items_to_generate:
+            logger.debug("所有片段已有摘要，无需生成")
+            return
+
+        # 批量生成摘要
+        logger.info(f"正在为 {len(items_to_generate)} 个片段批量生成 LLM 摘要")
+        summaries = await self.summary_generator.generate_batch_summaries(items_to_generate)
+
+        # 更新片段的摘要
+        for i, summary in zip(indices_to_update, summaries):
+            snippets[i].summary = summary
+
+        logger.info(f"成功生成 {len(summaries)} 个摘要")
+
+    def _get_supported_file_extensions(self) -> list[str]:
+        """
+        获取所有支持的文件扩展名
+
+        Returns:
+            扩展名列表
+        """
+        extensions = [
+            # 编程语言
+            ".py", ".js", ".ts", ".jsx", ".tsx",
+            ".java", ".go", ".rs", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
+            ".rb", ".php", ".swift", ".kt", ".kts", ".cs", ".sh", ".bash",
+            
+            # 配置文件
+            ".yaml", ".yml", ".toml", ".json", ".ini", ".conf", ".cfg", ".xml",
+            
+            # 文档文件
+            ".md", ".txt", ".rst", ".adoc",
+            
+            # 其他
+            ".sql", ".graphql", ".proto",
+        ]
+        return extensions
+
+    def _is_special_file(self, filename: str) -> bool:
+        """
+        检查是否为特殊文件（无扩展名或特殊命名）
+
+        Args:
+            filename: 文件名（小写）
+
+        Returns:
+            是否为特殊文件
+        """
+        special_files = [
+            "requirements.txt",
+            "package.json",
+            "cargo.toml",
+            "go.mod",
+            "pyproject.toml",
+            "pipfile",
+            "gemfile",
+            "composer.json",
+            "dockerfile",
+            ".dockerignore",
+            "readme.md",
+            "readme.txt",
+            "readme",
+        ]
+        return filename in special_files
+
     def initialize_database(self, drop_existing: bool = False):
         """
         初始化数据库（创建集合）

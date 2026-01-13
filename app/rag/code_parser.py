@@ -131,7 +131,7 @@ class CodeParser:
             project_root: 项目根目录（用于计算相对路径）
 
         Returns:
-            代码片段列表
+            代码片段列表（summary 将由 LLM 生成）
         """
         language = CodeParser.detect_language(file_path)
         if not language:
@@ -154,7 +154,9 @@ class CodeParser:
 
         # 根据语言选择解析器
         if language == "python":
-            return PythonCodeParser.parse(file_path, project_name, relative_path)
+            return PythonCodeParser.parse(
+                file_path, project_name, relative_path
+            )
         else:
             # 其他语言暂时使用通用解析器
             return GenericCodeParser.parse(
@@ -167,7 +169,9 @@ class PythonCodeParser:
 
     @staticmethod
     def parse(
-        file_path: str, project_name: str, relative_path: str
+        file_path: str,
+        project_name: str,
+        relative_path: str,
     ) -> list[CodeSnippet]:
         """解析Python文件"""
         snippets = []
@@ -233,18 +237,8 @@ class PythonCodeParser:
             # 提取函数代码
             content = "\n".join(lines[start_line - 1 : end_line])
 
-            # 提取Docstring作为摘要
-            docstring = ast.get_docstring(node)
+            # summary 将由 LLM 生成，暂时设为 None
             summary = None
-
-            if docstring:
-                # 如果有Docstring，截取前500字符作为摘要
-                summary = docstring[:500] + "..." if len(docstring) > 500 else docstring
-            else:
-                # 如果没有Docstring，生成简单摘要：函数名 + 参数列表
-                args = [arg.arg for arg in node.args.args]
-                async_prefix = "async " if is_async else ""
-                summary = f"{async_prefix}def {node.name}({', '.join(args)})"
 
             # 如果代码过长，先进行智能切分
             if len(content) > 65535:
@@ -304,23 +298,8 @@ class PythonCodeParser:
             # 提取类代码
             content = "\n".join(lines[start_line - 1 : end_line])
 
-            # 提取类的Docstring作为摘要
-            docstring = ast.get_docstring(node)
+            # summary 将由 LLM 生成，暂时设为 None
             summary = None
-
-            if docstring:
-                # 如果有Docstring，截取前500字符作为摘要
-                summary = docstring[:500] + "..." if len(docstring) > 500 else docstring
-            else:
-                # 如果没有Docstring，生成简单摘要：类名 + 基类
-                bases = [
-                    base.id if isinstance(base, ast.Name) else str(base)
-                    for base in node.bases
-                ]
-                if bases:
-                    summary = f"class {node.name}({', '.join(bases)})"
-                else:
-                    summary = f"class {node.name}"
 
             # 如果代码过长，先进行智能切分
             if len(content) > 65535:
@@ -398,10 +377,11 @@ class GenericCodeParser:
                     if len(chunk_content) > 65535:
                         chunk_content = chunk_content[:65000] + "\n// ... (truncated)"
 
-                    # 生成摘要：文件名 + 行范围
+                    # 生成片段元数据
                     chunk_num = i // chunk_size
-                    total_chunks = (len(lines) + chunk_size - 1) // chunk_size
-                    summary = f"{Path(file_path).stem} (lines {i + 1}-{min(i + chunk_size, len(lines))}, part {chunk_num + 1}/{total_chunks})"
+                    
+                    # summary 将由 LLM 生成，暂时设为 None
+                    summary = None
 
                     snippet = CodeSnippet(
                         project_name=project_name,
@@ -418,11 +398,10 @@ class GenericCodeParser:
                     snippets.append(snippet)
             else:
                 # 整个文件作为一个片段
-                # 生成摘要：文件名 + 总行数
                 total_lines = len(content.splitlines())
-                summary = (
-                    f"{Path(file_path).stem} ({language} file, {total_lines} lines)"
-                )
+                
+                # summary 将由 LLM 生成，暂时设为 None
+                summary = None
 
                 snippet = CodeSnippet(
                     project_name=project_name,

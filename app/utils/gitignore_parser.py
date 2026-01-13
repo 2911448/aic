@@ -13,19 +13,82 @@ from app.core.logger_config import logger
 
 # 默认忽略规则（作为后备）
 DEFAULT_IGNORE_PATTERNS = [
+    # 版本控制
     ".git",
+    ".svn",
+    ".hg",
+    
+    # Python 相关
     ".venv",
     "venv",
-    "node_modules",
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",
+    "*.egg-info",
+    ".coverage",
+    "htmlcov",
+    ".tox",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    
+    # Node.js 相关
+    "node_modules",
+    
+    # 构建产物
     "dist",
     "build",
-    ".tox",
-    "htmlcov",
-    ".coverage",
-    "*.egg-info",
+    "target",  # Rust
+    "bin",
+    "obj",
+    
+    # 锁文件（通常很大且不需要索引）
+    "*.lock",
+    "uv.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "Pipfile.lock",
+    "cargo.lock",
+    "go.sum",
+    "Gemfile.lock",
+    "composer.lock",
+    
+    # 日志文件
+    "*.log",
+    "logs/",
+    ".logs/",
+    
+    # 环境变量文件（安全考虑）
+    ".env",
+    ".env.local",
+    ".env.*.local",
+    
+    # IDE 和编辑器
+    ".idea",
+    ".vscode",
+    ".vs",
+    "*.swp",
+    "*.swo",
+    "*.swn",
+    "*~",
+    
+    # OS 相关
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+    
+    # 临时文件
+    "tmp/",
+    "temp/",
+    "*.tmp",
+    "*.temp",
+    
+    # 其他
+    ".cache",
+    ".npm",
+    ".yarn",
 ]
 
 

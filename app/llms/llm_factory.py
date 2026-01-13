@@ -5,7 +5,8 @@ from app.config.app_config import app_config
 from app.core.token_counter import TokenCounterCallback
 
 
-async def get_gpt_model(
+async def get_llm_model(
+    model_name: str,
     temperature: float = 0.1,
     enable_token_counter: bool = True,
     token_callback: TokenCounterCallback | None = None,
@@ -21,21 +22,21 @@ async def get_gpt_model(
     Returns:
         LLM 实例
     """
-    config = app_config.gpt_models.model_dump()
+    config = app_config.llm_models.get(model_name, {})
 
     # 创建token计数回调
     callbacks = []
     if enable_token_counter:
         if token_callback is None:
-            token_callback = TokenCounterCallback(model_name=config["model"])
+            token_callback = TokenCounterCallback(model_name=model_name)
         callbacks.append(token_callback)
 
     llm = ChatOpenAI(
-        model=config["model"],
+        model=model_name,
         temperature=temperature,
-        timeout=config["timeout"],
-        api_key=SecretStr(config["api_key"]),
-        base_url=config["base_url"],
+        timeout=config.get("timeout", 30),
+        api_key=SecretStr(config.get("api_key", "")),
+        base_url=config.get("base_url", ""),
         callbacks=callbacks,
     )
 

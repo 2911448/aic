@@ -17,7 +17,7 @@ from app.config.app_config import app_config
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
-from app.llms.llm_factory import get_gpt_model
+from app.llms.llm_factory import get_llm_model
 from app.sandbox.file_service import FileService
 from app.sandbox.git_service import GitService
 from app.sandbox.manager import get_sandbox_manager
@@ -236,7 +236,7 @@ class RefineAgentNode:
 
         try:
             # 使用官方推荐的 create_agent + response_format
-            llm = await get_gpt_model(temperature=0.1)
+            llm = await get_llm_model(model_name="gpt-5-2025-08-07")
             agent = create_agent(
                 model=llm,
                 tools=self.tools,

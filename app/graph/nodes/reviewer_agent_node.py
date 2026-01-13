@@ -11,7 +11,7 @@ from langgraph.types import Command
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
-from app.llms.llm_factory import get_gpt_model
+from app.llms.llm_factory import get_llm_model
 
 
 class ReviewerAgentNode:
@@ -210,7 +210,7 @@ class ReviewerAgentNode:
         )
 
         # 调用 LLM 生成 Markdown 报告
-        llm = await get_gpt_model(temperature=0.2)
+        llm = await get_llm_model(model_name="gpt-5-2025-08-07")
         response = await llm.ainvoke(prompt)
 
         # 直接返回 Markdown 内容
