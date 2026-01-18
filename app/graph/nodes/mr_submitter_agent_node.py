@@ -70,6 +70,7 @@ class MRSubmitterAgentNode:
             issue_type = analysis.get("issue_type", "bug")
             
             issue_data = state.get("issue_data", {})
+            issue_author_id = issue_data.get("author_id")  # 获取 Issue 作者 ID，用于分配 MR
             project_info = state.get("project_info", {})
 
             runtime = state.get("runtime", {})
@@ -256,6 +257,7 @@ class MRSubmitterAgentNode:
                     title=mr_title,
                     description=mr_description,
                     labels=["AI-Generated"],
+                    assignee_ids=[issue_author_id] if issue_author_id else None,
                     remove_source_branch=True,
                 )
 
