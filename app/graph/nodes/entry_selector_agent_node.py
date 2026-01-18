@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
+from app.core.trace_context import set_trace_id
+from app.decorators.tracking import track_node_metrics
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
 from app.llms.llm_factory import get_llm_model
 from app.utils.tree_sitter_service import tree_sitter_service
@@ -47,6 +49,7 @@ class EntrySelectorAgentNode:
         # 获取 entry_selector 专用工具集
         self.tools = get_tools_for_agent("entry_selector")
 
+    @track_node_metrics("entry_selector")
     async def __call__(
         self,
         state: IssueProcessState,
@@ -60,6 +63,11 @@ class EntrySelectorAgentNode:
         Returns:
             Command对象，返回 main_router 节点
         """
+        # 从 state 恢复 trace_id 到上下文
+        trace_id = state.get("runtime", {}).get("trace_id")
+        if trace_id:
+            set_trace_id(trace_id)
+        
         update_dict = {}
 
         try:

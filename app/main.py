@@ -5,22 +5,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
-from app.config.app_config import settings
+from app.config.app_config import app_config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """应用生命周期管理"""
     # 启动时执行
-    print(f"🚀 {settings.app_name} 正在启动...")
+    print(f"🚀 {app_config.app_name} 正在启动...")
     yield
     # 关闭时执行
-    print(f"👋 {settings.app_name} 正在关闭...")
+    print(f"👋 {app_config.app_name} 正在关闭...")
 
 
 app = FastAPI(
-    title=settings.app_name,
-    description="AI Assistant API - 基于 FastAPI 和 LangGraph",
+    title=app_config.app_name,
+    description="AI Code Assistant API",
     version="0.1.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -37,13 +37,13 @@ app.add_middleware(
 )
 
 # 注册路由
-app.include_router(router, prefix=settings.api_prefix)
+app.include_router(router, prefix=app_config.api_prefix)
 
 
 @app.get("/")
 async def root() -> dict[str, str]:
     """根路径"""
-    return {"message": f"Welcome to {settings.app_name}!", "docs": "/docs"}
+    return {"message": f"Welcome to {app_config.app_name}!", "docs": "/docs"}
 
 
 if __name__ == "__main__":
@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
+        host=app_config.host,
+        port=app_config.port,
+        reload=app_config.debug,
     )

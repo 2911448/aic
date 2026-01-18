@@ -8,6 +8,9 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from app.config.app_config import app_config
+from app.decorators.retry import async_retry
+
 
 class MergeRequestResult(BaseModel):
     """Merge Request 创建结果"""
@@ -38,15 +41,21 @@ class GitLabService:
         self.gitlab_url = gitlab_url.rstrip("/")
         self.private_token = private_token
         self.verify_ssl = verify_ssl
+        # 使用配置中的超时参数
+        timeout = app_config.gitlab.timeout if hasattr(app_config.gitlab, 'timeout') else 30
         self._client = httpx.AsyncClient(
             headers={
                 "PRIVATE-TOKEN": private_token,
                 "Content-Type": "application/json",
             },
             verify=verify_ssl,
-            timeout=30.0,
+            timeout=float(timeout),
         )
 
+    @async_retry(
+        max_retries=app_config.gitlab.max_retries if hasattr(app_config.gitlab, 'max_retries') else 3,
+        retriable_exceptions=(httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError)
+    )
     async def create_merge_request(
         self,
         project_id: int,
@@ -59,7 +68,7 @@ class GitLabService:
         remove_source_branch: bool = True,
     ) -> MergeRequestResult:
         """
-        创建 Merge Request
+        创建 Merge Request（自动重试网络错误和超时）
 
         Args:
             project_id: 项目 ID
@@ -126,6 +135,17 @@ class GitLabService:
                     error=error_msg,
                 )
 
+        except httpx.HTTPStatusError as e:
+            # 4xx 错误不重试，直接返回失败
+            if 400 <= e.response.status_code < 500:
+                error_msg = f"GitLab API 请求失败 (4xx): {str(e)}"
+                logger.error(error_msg)
+                return MergeRequestResult(
+                    success=False,
+                    error=error_msg,
+                )
+            # 5xx 会被重试
+            raise
         except httpx.HTTPError as e:
             error_msg = f"GitLab API 请求失败: {str(e)}"
             logger.error(error_msg)

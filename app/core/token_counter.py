@@ -3,6 +3,7 @@ Token计数器模块
 使用tiktoken统计LLM调用的token消耗
 """
 
+import time
 from typing import Any, Dict, List, Optional
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage
@@ -26,6 +27,7 @@ class TokenCounterCallback(AsyncCallbackHandler):
         self.total_tokens = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        self.start_time = None  # 记录调用开始时间
 
         # 获取对应的encoding
         try:
@@ -84,6 +86,7 @@ class TokenCounterCallback(AsyncCallbackHandler):
         self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
     ) -> None:
         """LLM开始调用时的回调"""
+        self.start_time = time.time()
         # 计算prompt tokens
         prompt_tokens = sum(self.count_tokens(prompt) for prompt in prompts)
         self.prompt_tokens = prompt_tokens
@@ -99,6 +102,7 @@ class TokenCounterCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Chat模型开始调用时的回调"""
+        self.start_time = time.time()
         # 计算所有消息的tokens
         prompt_tokens = sum(
             self.count_messages_tokens(message_list) for message_list in messages
@@ -143,10 +147,28 @@ class TokenCounterCallback(AsyncCallbackHandler):
             self.completion_tokens = completion_tokens
             self.total_tokens = self.prompt_tokens + self.completion_tokens
 
+        # 计算耗时
+        duration_ms = (time.time() - self.start_time) * 1000 if self.start_time else 0
+        
         # 记录详细的token使用情况
         logger.info(
-            f"LLM调用完成 - 模型: {self.model_name}, Prompt Tokens: {self.prompt_tokens}, Total Tokens: {self.total_tokens}",
+            f"LLM调用完成 - 模型: {self.model_name}, Prompt Tokens: {self.prompt_tokens}, "
+            f"Completion Tokens: {self.completion_tokens}, Total Tokens: {self.total_tokens}, "
+            f"Duration: {duration_ms:.2f}ms"
         )
+        
+        # 记录到指标收集器
+        try:
+            from app.core.metrics import metrics_collector
+            metrics_collector.log_llm_call(
+                model_name=self.model_name,
+                prompt_tokens=self.prompt_tokens,
+                completion_tokens=self.completion_tokens,
+                duration_ms=duration_ms,
+                success=True,
+            )
+        except ImportError:
+            pass  # 如果 metrics 模块尚未加载，跳过
 
     async def on_llm_error(
         self, error: Exception, **kwargs: Any

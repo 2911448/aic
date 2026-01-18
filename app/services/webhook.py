@@ -4,6 +4,7 @@ GitLab Webhook 服务
 """
 
 import hmac
+import time
 from typing import Optional
 
 from app.core.logger_config import logger
@@ -11,6 +12,8 @@ from app.core.logger_config import logger
 from app.config.app_config import app_config
 from app.schemas.webhook import GitLabWebhookPayload, WebhookResponse
 from app.sandbox.manager import get_sandbox_manager
+from app.core.trace_context import generate_trace_id, set_trace_id
+from app.core.metrics import metrics_collector
 
 
 class WebhookService:
@@ -121,14 +124,22 @@ class WebhookService:
                 project_path=project.path_with_namespace,
             )
 
-        logger.info(f"启动 AI Agent 工作流处理 Issue #{issue_iid}")
+        # 生成并设置 trace_id
+        trace_id = generate_trace_id()
+        set_trace_id(trace_id)
+        
+        logger.info(
+            f"启动 AI Agent 工作流处理 Issue #{issue_iid}",
+            extra={"trace_id": trace_id, "project_id": project.id}
+        )
 
+        workflow_start = time.time()
         result = {}  # 初始化 result，以便在 finally 中访问
         try:
             from app.graph.workflows.issue_workflow import create_issue_workflow
             from app.graph.state import IssueProcessState, init_state_defaults
 
-            # 构造初始状态
+            # 构造初始状态（注入 trace_id）
             initial_state: IssueProcessState = {
                 "issue_data": issue,
                 "project_info": project.model_dump(),
@@ -153,6 +164,7 @@ class WebhookService:
                 "review": {},
                 "delivery": {},
                 "runtime": {
+                    "trace_id": trace_id,  # 注入 trace_id
                     "executed_nodes": [],
                     "current_step": "init",
                     "error": None,
@@ -174,11 +186,23 @@ class WebhookService:
             runtime = result.get("runtime", {})
             executed_nodes = runtime.get("executed_nodes", [])
             error = runtime.get("error")
+            
+            # 记录 workflow 总结指标
+            workflow_duration = (time.time() - workflow_start) * 1000
+            metrics_collector.log_workflow_summary(
+                issue_iid=issue_iid,
+                project_path=project.path_with_namespace,
+                total_duration_ms=workflow_duration,
+                executed_nodes=executed_nodes,
+                success=error is None,
+                error=error,
+            )
 
             logger.info(
                 f"Workflow完成 | "
                 f"执行路径: {' → '.join(executed_nodes)} | "
-                f"错误: {error or 'None'}"
+                f"错误: {error or 'None'} | "
+                f"耗时: {workflow_duration:.2f}ms"
             )
 
             if error:

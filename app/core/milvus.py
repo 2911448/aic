@@ -2,6 +2,7 @@
 Milvus 向量数据库管理服务
 """
 
+import asyncio
 from typing import Any
 from pymilvus import (
     MilvusClient,
@@ -9,10 +10,12 @@ from pymilvus import (
     FieldSchema,
     CollectionSchema,
 )
+from pymilvus.exceptions import MilvusException
 from app.core.logger_config import logger
 
 from app.config.app_config import app_config
 from app.schemas.code import CodeSnippet
+from app.decorators.retry import async_retry
 
 
 class MilvusService:
@@ -324,7 +327,11 @@ class MilvusService:
             logger.error(f"插入代码片段失败: {e}")
             raise
 
-    def search_similar_code(
+    @async_retry(
+        max_retries=app_config.milvus.max_retries,
+        retriable_exceptions=(MilvusException, TimeoutError, ConnectionError)
+    )
+    async def search_similar_code(
         self,
         query_vector: list[float],
         top_k: int = 10,
@@ -332,7 +339,7 @@ class MilvusService:
         output_fields: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        向量相似度搜索
+        向量相似度搜索（自动重试连接错误）
 
         Args:
             query_vector: 查询向量
@@ -360,7 +367,9 @@ class MilvusService:
                     "use_count",
                 ]
 
-            results = self.client.search(
+            # 在线程池中执行同步的 Milvus 搜索操作
+            results = await asyncio.to_thread(
+                self.client.search,
                 collection_name=self.collection_name,
                 data=[query_vector],
                 limit=top_k,
@@ -388,7 +397,11 @@ class MilvusService:
             logger.error(f"向量搜索失败: {e}")
             raise
 
-    def search_by_summary(
+    @async_retry(
+        max_retries=app_config.milvus.max_retries,
+        retriable_exceptions=(MilvusException, TimeoutError, ConnectionError)
+    )
+    async def search_by_summary(
         self,
         query_vector: list[float],
         top_k: int = 10,
@@ -396,7 +409,7 @@ class MilvusService:
         output_fields: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        使用摘要向量进行相似度搜索（父子索引策略）
+        使用摘要向量进行相似度搜索（父子索引策略）（自动重试连接错误）
 
         Args:
             query_vector: 查询向量
@@ -424,8 +437,9 @@ class MilvusService:
                     "use_count",
                 ]
 
-            # 使用 summary_embedding 字段进行搜索
-            results = self.client.search(
+            # 在线程池中执行同步的 Milvus 搜索操作
+            results = await asyncio.to_thread(
+                self.client.search,
                 collection_name=self.collection_name,
                 data=[query_vector],
                 anns_field="summary_embedding",  # 指定使用摘要向量字段

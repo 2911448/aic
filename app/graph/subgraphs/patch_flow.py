@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
+from app.core.trace_context import set_trace_id
+from app.decorators.tracking import track_node_metrics
 from app.graph.routers.patch_judge import get_patch_judge
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
 from app.llms.llm_factory import get_llm_model
@@ -228,6 +230,7 @@ class PatchFlowNode:
         self.patch_writer = PatchWriterStepNode()
         self.patch_judge = get_patch_judge()
     
+    @track_node_metrics("patch_flow")
     async def __call__(
         self,
         state: IssueProcessState,
@@ -241,6 +244,11 @@ class PatchFlowNode:
         Returns:
             Command 对象，成功返回 main_router，失败返回 sandbox_teardown
         """
+        # 从 state 恢复 trace_id 到上下文
+        trace_id = state.get("runtime", {}).get("trace_id")
+        if trace_id:
+            set_trace_id(trace_id)
+        
         update_dict = {}
         
         try:

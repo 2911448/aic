@@ -10,6 +10,8 @@ from langgraph.types import Command
 
 from app.config.app_config import app_config
 from app.core.logger_config import logger
+from app.core.trace_context import set_trace_id
+from app.decorators.tracking import track_node_metrics
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
 from app.sandbox.git_service import GitService
 from app.sandbox.manager import get_sandbox_manager
@@ -23,6 +25,7 @@ class MRSubmitterAgentNode:
         """初始化节点"""
         self.sandbox_manager = get_sandbox_manager()
 
+    @track_node_metrics("mr_submitter")
     async def __call__(
         self,
         state: IssueProcessState,
@@ -36,6 +39,11 @@ class MRSubmitterAgentNode:
         Returns:
             Command 对象，返回 sandbox_teardown 节点
         """
+        # 从 state 恢复 trace_id 到上下文
+        trace_id = state.get("runtime", {}).get("trace_id")
+        if trace_id:
+            set_trace_id(trace_id)
+        
         update_dict = {}
 
         try:
@@ -132,9 +140,6 @@ class MRSubmitterAgentNode:
 
             # 2. Git 操作
             try:
-                # 修复：PatchFlow/RefactoringAgentBatch 已经应用了所有补丁到工作区
-                # 这里不需要重复 apply，直接基于当前工作区创建新分支并提交
-                
                 # 先检查工作区是否有变更
                 git_status = await git_service.status()
                 if git_status.is_clean:
@@ -155,37 +160,27 @@ class MRSubmitterAgentNode:
                     )
                     return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
-                # 提交当前工作区的变更到临时分支（避免干扰后续操作）
-                logger.info("暂存当前工作区变更...")
-                await git_service.add(all_files=True)
-                temp_commit_msg = f"[临时] {self._generate_commit_message(issue_data)}"
-                await git_service.commit(
-                    message=temp_commit_msg
-                )
-
                 # fetch 最新远程分支
                 await git_service.fetch()
 
-                # 创建新分支（基于远程 default_branch）
+                # 直接创建新分支（基于远程 default_branch）
+                logger.info(f"创建新分支 {branch_name} (from origin/{default_branch})")
                 await git_service.checkout_branch(
                     branch=branch_name,
                     create=True,
                     start_point=f"origin/{default_branch}"
                 )
 
-                # cherry-pick 刚才的临时提交（将变更迁移到新分支）
-                logger.info("将变更迁移到新分支...")
-                cherry_pick_cmd = f"git cherry-pick HEAD@{{1}}"
-                await git_service._execute(cherry_pick_cmd, timeout=30)
-
-                # 修改提交信息为正式的
+                # 在新分支上提交当前工作区变更
+                await git_service.add(all_files=True)
                 commit_message = self._generate_commit_message(issue_data)
-                # 转义提交信息中的引号（f-string 中不能直接使用反斜杠）
-                escaped_message = commit_message.replace('"', '\\"')
-                await git_service._execute(
-                    f'git commit --amend -m "{escaped_message}"',
-                    timeout=30
+                
+                commit_hash = await git_service.commit(
+                    message=commit_message,
+                    allow_empty=False,
                 )
+                
+                logger.info(f"成功提交到分支 {branch_name}, commit: {commit_hash}")
 
                 # 推送到远程
                 await git_service.push(

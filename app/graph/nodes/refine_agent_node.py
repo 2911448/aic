@@ -5,6 +5,7 @@ Refine Agent Node - 批处理修复循环节点（彻底重写版）
 使用 LangChain Agent + tools + structured output 生成修复方案。
 """
 
+import asyncio
 import difflib
 from typing import Literal
 
@@ -16,6 +17,8 @@ from pydantic import BaseModel, Field
 from app.config.app_config import app_config
 from app.core.logger_config import logger
 from app.core.prompt_manager import prompt_manager
+from app.core.trace_context import set_trace_id
+from app.decorators.tracking import track_node_metrics
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
 from app.llms.llm_factory import get_llm_model
 from app.sandbox.file_service import FileService
@@ -52,6 +55,7 @@ class RefineAgentNode:
         self.tools = get_tools_for_agent("refine")
         self.sandbox_manager = get_sandbox_manager()
 
+    @track_node_metrics("refine_agent")
     async def __call__(
         self,
         state: IssueProcessState,
@@ -73,6 +77,11 @@ class RefineAgentNode:
         Returns:
             Command 对象，返回 main_router 或 sandbox_teardown
         """
+        # 从 state 恢复 trace_id 到上下文
+        trace_id = state.get("runtime", {}).get("trace_id")
+        if trace_id:
+            set_trace_id(trace_id)
+        
         update_dict = {}
 
         try:

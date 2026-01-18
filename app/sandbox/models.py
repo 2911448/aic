@@ -64,7 +64,6 @@ class SandboxConfig(BaseModel):
     network_mode: str | None = Field(default=None, description="网络模式")
     environment: dict[str, str] = Field(default_factory=dict, description="环境变量")
     git_auth: GitAuthConfig | None = Field(default=None, description="Git 认证配置")
-    auto_cleanup: bool = Field(default=True, description="是否自动清理容器")
 
 
 class Sandbox(BaseModel):

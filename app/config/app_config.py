@@ -1,104 +1,83 @@
 import os
-from typing import Literal, Optional, Dict, List
-from typing import Any
+from typing import Dict, Any
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
 import yaml
 
 
-class BailianConfig(BaseModel):
+class ClientConfig(BaseModel):
+    """客户端配置基类 - 提供公共的超时和重试配置"""
+    timeout: int = Field(default=30, description="超时时间（秒）")
+    max_retries: int = Field(default=3, description="最大重试次数")
+
+
+class BailianConfig(ClientConfig):
+    """阿里云百炼配置"""
     api_key: str
     base_url: str
     embedding_model: str
     rerank_model: str
-    timeout: int = 30
-    max_retries: int = 3
 
 
-class MilvusConfig(BaseModel):
+class MilvusConfig(ClientConfig):
+    """Milvus向量数据库配置"""
     uri: str
     username: str
     password: str
     database: str
     collection_name: str
     vector_dimension: int
-    timeout: int = 30
-    max_retries: int = 3
 
 
-class LogConfig(BaseModel):
-    path: str
-
-
-class SandboxDockerConfig(BaseModel):
-    """沙箱 Docker 配置"""
-
-    image: str = Field(default="video-sandbox:0.1", description="默认 Docker 镜像")
-    memory_limit: str = Field(default="512m", description="默认内存限制")
-    cpu_limit: float = Field(default=1.0, description="默认 CPU 限制")
-    timeout: int = Field(default=300, description="默认超时时间（秒）")
-    workspace_path: str = Field(default="/workspace", description="容器内工作目录")
-    network_mode: str | None = Field(default=None, description="网络模式")
-
-
-class SandboxGitAuthConfig(BaseModel):
-    """沙箱 Git 认证配置"""
-
-    auth_type: Literal["ssh", "http", "auto"] = Field(
-        default="auto", description="认证类型"
-    )
-    ssh_private_key_path: str | None = Field(
-        default=None, description="SSH 私钥文件路径"
-    )
-    http_token: str | None = Field(
-        default=None, description="HTTP Personal Access Token"
-    )
-    http_username: str | None = Field(default=None, description="HTTP 用户名")
-
-
-class SandboxConfig(BaseModel):
-    """沙箱环境配置"""
-
-    enabled: bool = Field(default=True, description="是否启用沙箱功能")
-    base_workspace_path: str = Field(
-        default="/tmp/sandbox_workspaces", description="工作目录基础路径"
-    )
-    auto_cleanup: bool = Field(default=True, description="是否自动清理过期沙箱")
-    max_age_seconds: int = Field(default=3600, description="沙箱最大存活时间（秒）")
-    docker: SandboxDockerConfig = Field(
-        default_factory=SandboxDockerConfig, description="Docker 配置"
-    )
-    git_auth: SandboxGitAuthConfig | None = Field(
-        default=None, description="Git 认证配置"
-    )
-
-
-class GitLabConfig(BaseModel):
+class GitLabConfig(ClientConfig):
+    """GitLab配置"""
     webhook_secret: str
     verify_ssl: bool = True
 
 
+class LogConfig(BaseModel):
+    """日志配置"""
+    path: str
+
+
+class LLMModelConfig(ClientConfig):
+    """LLM 模型配置"""
+    api_key: str = Field(description="API密钥")
+    base_url: str = Field(description="API基础URL")
+    # timeout 从 ClientConfig 继承
+
+
 class WorkflowConfig(BaseModel):
     """工作流配置"""
-
     max_refine_retry_count: int = Field(
         default=5, description="验证失败时的最大修复重试次数"
     )
 
 
 class AppConfig(BaseModel):
+    """应用配置 - 统一的配置入口"""
+    
+    # 应用级配置
     app_name: str
+    host: str = Field(default="0.0.0.0", description="服务监听地址")
+    port: int = Field(default=9000, description="服务端口")
+    debug: bool = Field(default=False, description="调试模式")
+    api_prefix: str = Field(default="/api/v1", description="API路径前缀")
+    
+    # 外部服务配置
     bailian: BailianConfig
     milvus: MilvusConfig
-    log: LogConfig
-    llm_models: Optional[Dict[str, Dict[str, Any]]] = None
-    sandbox: SandboxConfig = Field(
-        default_factory=SandboxConfig, description="沙箱环境配置"
-    )
     gitlab: GitLabConfig
-    workflow: WorkflowConfig = Field(
-        default_factory=WorkflowConfig, description="工作流配置"
-    )
+    log: LogConfig
+    
+    # LLM模型配置（强类型）
+    llm_models: Dict[str, LLMModelConfig] = Field(default_factory=dict)
+    
+    # Sandbox 配置（运行时会转换为 app.sandbox.models.SandboxConfig）
+    # 使用 Any 避免循环导入，实际类型在 load_config 中处理
+    sandbox: Any = Field(default=None, description="沙箱环境配置")
+    
+    # 工作流配置
+    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
 
     @classmethod
     def load_config(cls):
@@ -118,25 +97,31 @@ class AppConfig(BaseModel):
             content = f.read()
 
         config_dict = yaml.safe_load(content)
+        
+        from app.sandbox.models import SandboxConfig, GitAuthConfig
+        
+        # 转换 sandbox 配置为运行时模型
+        if "sandbox" in config_dict and config_dict["sandbox"]:
+            sandbox_dict = config_dict["sandbox"]
+            # 如果有 git_auth，也转换为 GitAuthConfig
+            if "git_auth" in sandbox_dict and sandbox_dict["git_auth"]:
+                sandbox_dict["git_auth"] = GitAuthConfig(**sandbox_dict["git_auth"])
+            config_dict["sandbox"] = SandboxConfig(**sandbox_dict)
+        
         return AppConfig(**config_dict)
 
 
-app_config: AppConfig = AppConfig.load_config()
+# 全局配置实例（单例模式）
+_app_config: AppConfig | None = None
 
 
-class Settings(BaseSettings):
-    """应用设置"""
-
-    app_name: str = "AIC - AI Code Assistant"
-    host: str = "0.0.0.0"
-    port: int = 9000
-    debug: bool = True
-    api_prefix: str = "/api/v1"
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+def get_app_config() -> AppConfig:
+    """获取全局配置实例（单例模式）"""
+    global _app_config
+    if _app_config is None:
+        _app_config = AppConfig.load_config()
+    return _app_config
 
 
-# 全局设置实例
-settings = Settings()
+# 向后兼容的别名
+app_config = get_app_config()

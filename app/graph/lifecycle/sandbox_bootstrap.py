@@ -62,27 +62,9 @@ class SandboxBootstrapNode:
                 },
             )
 
-            # 1. 准备 Git 认证配置
-            git_auth = None
-            if app_config.sandbox.git_auth:
-                git_auth = GitAuthConfig(
-                    auth_type=GitAuthType(app_config.sandbox.git_auth.auth_type),
-                    ssh_private_key_path=app_config.sandbox.git_auth.ssh_private_key_path,
-                    http_token=app_config.sandbox.git_auth.http_token,
-                    http_username=app_config.sandbox.git_auth.http_username,
-                )
-
-            # 2. 创建沙箱
+            # 1. 创建沙箱（直接使用配置，无需映射）
             logger.info("SandboxBootstrap: 创建新沙箱")
-            sb_config = SandboxConfig(
-                docker_image=app_config.sandbox.docker.image,
-                memory_limit=app_config.sandbox.docker.memory_limit,
-                cpu_limit=app_config.sandbox.docker.cpu_limit,
-                timeout=app_config.sandbox.docker.timeout,
-                workspace_path=app_config.sandbox.docker.workspace_path,
-                network_mode=app_config.sandbox.docker.network_mode,
-                git_auth=git_auth,
-            )
+            sb_config = app_config.sandbox
             sandbox = await self.sandbox_manager.create_sandbox(config=sb_config)
             
             sandbox_id = sandbox.id

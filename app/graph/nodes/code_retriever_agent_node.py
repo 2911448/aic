@@ -11,6 +11,8 @@ from langgraph.types import Command
 
 from app.core.logger_config import logger
 from app.core.milvus import milvus_service
+from app.core.trace_context import set_trace_id
+from app.decorators.tracking import track_node_metrics
 from app.graph.state import IssueProcessState, NodeName, ProcessStage
 from app.rag.embedding import embedding_service
 from app.rag.rerank import rerank_service
@@ -24,6 +26,7 @@ class CodeRetrieverAgentNode:
         self.top_k = 30  # 每个query从Milvus召回的结果数
         self.final_top_n = 5  # 重排序后最终保留的结果数
 
+    @track_node_metrics("code_retriever")
     async def __call__(
         self,
         state: IssueProcessState,
@@ -37,6 +40,11 @@ class CodeRetrieverAgentNode:
         Returns:
             Command对象，返回 main_router 节点
         """
+        # 从 state 恢复 trace_id 到上下文
+        trace_id = state.get("runtime", {}).get("trace_id")
+        if trace_id:
+            set_trace_id(trace_id)
+        
         update_dict = {}
 
         try:
@@ -213,7 +221,7 @@ class CodeRetrieverAgentNode:
             检索结果列表
         """
         try:
-            results = milvus_service.search_similar_code(
+            results = await milvus_service.search_similar_code(
                 query_vector=query_vector,
                 top_k=self.top_k,
                 filter_expr=filter_expr,

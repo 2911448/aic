@@ -13,16 +13,23 @@ async def get_llm_model(
 ) -> BaseChatModel:
     """
     获取 GPT 模型实例
-    config: GPTModelsConfig
+    
     Args:
+        model_name: 模型名称
         temperature: 温度参数
         enable_token_counter: 是否启用token计数器
         token_callback: 外部传入的token计数回调，如果为None则自动创建
 
     Returns:
         LLM 实例
+        
+    Raises:
+        ValueError: 未找到模型配置
     """
-    config = app_config.llm_models.get(model_name, {})
+    # 获取配置（现在是强类型 LLMModelConfig）
+    config = app_config.llm_models.get(model_name)
+    if not config:
+        raise ValueError(f"未找到模型配置: {model_name}")
 
     # 创建token计数回调
     callbacks = []
@@ -32,11 +39,11 @@ async def get_llm_model(
         callbacks.append(token_callback)
 
     llm = ChatOpenAI(
-        model=model_name,
+        model=model_name,  # key 就是 model 名
         temperature=temperature,
-        timeout=config.get("timeout", 30),
-        api_key=SecretStr(config.get("api_key", "")),
-        base_url=config.get("base_url", ""),
+        timeout=config.timeout,
+        api_key=SecretStr(config.api_key),
+        base_url=config.base_url,
         callbacks=callbacks,
     )
 
