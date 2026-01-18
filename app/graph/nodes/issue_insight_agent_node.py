@@ -1,6 +1,6 @@
 """
-Issue Insight Agent Node - Issue语义理解
-分析Issue并生成RAG搜索查询
+Issue Insight Agent Node - 任务语义理解
+分析任务并生成RAG搜索查询
 """
 
 from typing import Literal
@@ -17,7 +17,7 @@ from app.utils.common_function import parse_json_response
 
 
 class IssueInsightAgentNode:
-    """Issue语义理解Agent节点"""
+    """任务语义理解Agent节点"""
 
     def __init__(self):
         """初始化节点，预加载资源"""
@@ -44,11 +44,11 @@ class IssueInsightAgentNode:
                 ProcessStage.ISSUE_ANALYSIS.value,
                 {
                     "status": NodeName.ISSUE_ANALYST.value,
-                    "progress": "正在分析Issue并生成搜索查询...",
+                    "progress": "正在分析任务并生成搜索查询...",
                     "think_chain_item": {
                         "type": NodeName.ISSUE_ANALYST.value,
-                        "title": "Issue语义理解",
-                        "desc": "分析Issue内容，生成RAG搜索查询",
+                        "title": "任务语义理解",
+                        "desc": "分析任务内容，生成RAG搜索查询",
                         "urls": [],
                     },
                 },
@@ -56,6 +56,42 @@ class IssueInsightAgentNode:
 
             # 执行分析逻辑
             analysis = await self._analyze_and_generate_queries(state)
+
+            # 检查内容是否有效
+            if not analysis.valid:
+                logger.warning(f"任务内容无效: {analysis.reason}")
+                
+                runtime = state.get("runtime", {})
+                update_dict.update(
+                    {
+                        "runtime": {
+                            **runtime,
+                            "error": f"任务内容无效: {analysis.reason}",
+                            "executed_nodes": [
+                                *runtime.get("executed_nodes", []),
+                                NodeName.ISSUE_ANALYST.value,
+                            ],
+                            "current_step": NodeName.ISSUE_ANALYST.value,
+                        },
+                    }
+                )
+
+                # 发送无效内容事件
+                await adispatch_custom_event(
+                    ProcessStage.THINK_CHAIN.value,
+                    {
+                        "status": NodeName.ISSUE_ANALYST.value,
+                        "progress": "任务内容无效，终止处理",
+                        "think_chain_item": {
+                            "type": NodeName.ISSUE_ANALYST.value,
+                            "title": "任务内容无效",
+                            "desc": analysis.reason,
+                            "urls": [],
+                        },
+                    },
+                )
+
+                return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
 
             # 提取查询字符串列表
             search_queries = [q.query for q in analysis.search_queries]
@@ -81,7 +117,7 @@ class IssueInsightAgentNode:
             )
 
             logger.info(
-                f"Issue Analyst完成: 类型={analysis.issue_type}, "
+                f"任务分析完成: 类型={analysis.issue_type}, "
                 f"分支名={analysis.branch_name_suggestion}, "
                 f"生成{len(search_queries)}个搜索查询"
             )
@@ -91,10 +127,10 @@ class IssueInsightAgentNode:
                 ProcessStage.THINK_CHAIN.value,
                 {
                     "status": NodeName.ISSUE_ANALYST.value,
-                    "progress": "Issue分析完成",
+                    "progress": "任务分析完成",
                     "think_chain_item": {
                         "type": NodeName.ISSUE_ANALYST.value,
-                        "title": "Issue语义理解",
+                        "title": "任务语义理解",
                         "desc": f"类型: {analysis.issue_type}, 生成{len(search_queries)}个搜索查询",
                         "urls": [],
                     },
@@ -104,13 +140,13 @@ class IssueInsightAgentNode:
             return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
 
         except Exception as e:
-            logger.error(f"Issue Analyst失败: {e}", exc_info=True)
+            logger.error(f"任务分析失败: {e}", exc_info=True)
             runtime = state.get("runtime", {})
             update_dict.update(
                 {
                     "runtime": {
                         **runtime,
-                        "error": f"Issue分析失败: {str(e)}",
+                        "error": f"任务分析失败: {str(e)}",
                         "executed_nodes": [
                             *runtime.get("executed_nodes", []),
                             NodeName.ISSUE_ANALYST.value,
@@ -129,7 +165,7 @@ class IssueInsightAgentNode:
         一次LLM调用完成分析和查询生成
 
         Returns:
-            IssueAnalysis: 包含issue_type和search_queries
+            IssueAnalysis: 包含valid、issue_type和search_queries等字段
         """
         issue_data = state.get("issue_data", {})
         project_info = state.get("project_info", {})
