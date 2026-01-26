@@ -41,6 +41,10 @@ class NodeName(str, Enum):
     REVIEWER = "reviewer"
     MR_SUBMITTER = "mr_submitter"
 
+    # Merge workflow 节点
+    MERGE_DIFF_COLLECTOR = "merge_diff_collector"
+    VECTOR_INDEX_UPDATE = "vector_index_update"
+
     # 子图名称
     PATCH_FLOW = "patch_flow"
     VERIFICATION_FLOW = "verification_flow"

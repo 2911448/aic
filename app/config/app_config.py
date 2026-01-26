@@ -53,6 +53,14 @@ class WorkflowConfig(BaseModel):
     )
 
 
+class OpikConfig(BaseModel):
+    """Opik tracing 配置"""
+    api_key: str = Field(description="Opik API Key")
+    workspace: str = Field(description="Opik workspace name")
+    project_name: str = Field(default="aic", description="Opik project name")
+    enabled: bool = Field(default=True, description="是否启用 Opik tracing")
+
+
 class AppConfig(BaseModel):
     """应用配置 - 统一的配置入口"""
     
@@ -78,6 +86,9 @@ class AppConfig(BaseModel):
     
     # 工作流配置
     workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
+    
+    # Opik tracing 配置（可选）
+    opik: OpikConfig | None = Field(default=None, description="Opik tracing 配置")
 
     @classmethod
     def load_config(cls):

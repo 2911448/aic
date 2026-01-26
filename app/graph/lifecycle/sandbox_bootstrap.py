@@ -4,8 +4,6 @@ Sandbox Bootstrap Node - Sandbox 生命周期前置节点
 """
 
 import os
-from typing import Literal
-
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langgraph.types import Command
 
@@ -25,16 +23,38 @@ from app.utils.gitignore_parser import (
 
 
 class SandboxBootstrapNode:
-    """Sandbox Bootstrap 节点 - 前置创建并 clone 仓库"""
+    """
+    Sandbox Bootstrap 节点 - 前置创建并 clone 仓库
+    
+    这是所有 workflow 的公共前置节点，负责：
+    1. 创建隔离的 sandbox 环境
+    2. 克隆项目代码仓库
+    3. 加载 .gitignore 规则
+    4. 首次索引（如果项目不在向量库中）
+    
+    设计模式 - 可扩展性：
+    - 通过构造函数的 next_node 参数配置成功后跳转的下一个节点
+    - Issue workflow: SandboxBootstrapNode() → 默认跳转到 "main_router"
+    - Merge workflow: SandboxBootstrapNode(next_node="merge_diff_collector")
+    - 未来的新 workflow: SandboxBootstrapNode(next_node="your_entry_node")
+    """
 
-    def __init__(self):
-        """初始化节点"""
+    def __init__(self, next_node: str = "main_router"):
+        """
+        初始化节点
+        
+        Args:
+            next_node: 成功后跳转的下一个节点名称
+                      默认为 "main_router" (issue workflow)
+                      其他 workflow 需显式传入各自的入口节点名
+        """
         self.sandbox_manager = get_sandbox_manager()
+        self.next_node = next_node
 
     async def __call__(
         self,
         state: IssueProcessState,
-    ) -> Command[Literal["main_router", "sandbox_teardown", "__end__"]]:
+    ) -> Command[str]:
         """
         创建 sandbox 并 clone 仓库
         
@@ -42,7 +62,7 @@ class SandboxBootstrapNode:
             state: 当前工作流状态
             
         Returns:
-            Command 对象，成功则 goto main_router，失败则 goto sandbox_teardown -> END
+            Command 对象，成功则 goto next_node（由构造函数配置），失败则 goto sandbox_teardown 或 __end__
         """
         update_dict = {}
         
@@ -180,8 +200,8 @@ class SandboxBootstrapNode:
 
             logger.info(f"SandboxBootstrap 完成: sandbox_id={sandbox_id}, repo_path={repo_path}")
             
-            # 成功后进入主路由
-            return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
+            # 成功后进入下一个节点（由构造函数配置）
+            return Command(update=update_dict, goto=self.next_node)
 
         except Exception as e:
             error_msg = f"SandboxBootstrap 失败: {str(e)}"

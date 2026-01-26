@@ -14,6 +14,7 @@ from app.graph.state.state import (
     DeliveryInfo,
     ImpactInfo,
     IssueProcessState,
+    MergeInfo,
     PatchingInfo,
     RetrievalInfo,
     ReviewInfo,
@@ -38,6 +39,7 @@ __all__ = [
     "ImpactInfo",
     "ReviewInfo",
     "DeliveryInfo",
+    "MergeInfo",
     "RuntimeInfo",
     # Helpers
     "init_state_defaults",

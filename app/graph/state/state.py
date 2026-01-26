@@ -130,6 +130,19 @@ class RuntimeInfo(TypedDict, total=False):
     trace_id: Optional[str]  # 可选：分布式追踪 ID
 
 
+class MergeInfo(TypedDict, total=False):
+    """Merge Request 处理信息（MergeDiffCollector / IndexUpdate 产出）"""
+
+    mr_iid: Optional[int]  # Merge Request IID (项目内 ID)
+    mr_id: Optional[int]  # Merge Request global ID
+    target_branch: Optional[str]  # 目标分支
+    source_branch: Optional[str]  # 源分支
+    merge_commit_sha: Optional[str]  # 合并后的 commit SHA
+    changed_files: list[dict]  # 变更文件列表 [{"status": "added/modified/deleted/renamed", "path": str, "old_path": Optional[str]}]
+    indexed_files: list[str]  # 已成功索引的文件路径列表
+    failed_files: list[dict]  # 索引失败的文件 [{"path": str, "error": str}]
+
+
 # ============================================================================
 # Main IssueProcessState (Top-Level State)
 # ============================================================================
@@ -151,6 +164,7 @@ class IssueProcessState(TypedDict, total=False):
     - ripple: Ripple Loop 队列管理（全局扫描、批量处理、增量涟漪）
     - review: Reviewer 产出
     - delivery: MRSubmitter 产出
+    - merge: Merge Request 处理信息（复用于 merge workflow）
     - runtime: 流程控制元数据
     """
 
@@ -173,6 +187,7 @@ class IssueProcessState(TypedDict, total=False):
     ripple: RippleInfo  # 涟漪递归队列管理
     review: ReviewInfo  # 代码评审结果
     delivery: DeliveryInfo  # MR 提交结果
+    merge: MergeInfo  # Merge Request 处理信息
     runtime: RuntimeInfo  # 执行元数据与流程控制
 
 
@@ -228,6 +243,12 @@ def init_state_defaults(state: IssueProcessState) -> IssueProcessState:
         state["review"] = {}
     if "delivery" not in state:
         state["delivery"] = {}
+    if "merge" not in state:
+        state["merge"] = {
+            "changed_files": [],
+            "indexed_files": [],
+            "failed_files": [],
+        }
     if "runtime" not in state:
         state["runtime"] = {
             "executed_nodes": [],

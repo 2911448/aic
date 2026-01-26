@@ -74,6 +74,8 @@ class WebhookService:
             return await self._process_issue_event(payload)
         elif payload.object_kind == "note":
             return await self._process_note_event(payload)
+        elif payload.object_kind == "merge_request":
+            return await self._process_merge_request_event(payload)
         else:
             logger.warning(f"暂不支持的事件类型: {payload.object_kind}")
             return WebhookResponse(
@@ -179,7 +181,17 @@ class WebhookService:
             workflow = create_issue_workflow()
             result = await workflow.ainvoke(
                 initial_state,
-                config={"recursion_limit": 100}  # 增加递归限制以支持更复杂的流程
+                config={
+                    "recursion_limit": 100,  # 增加递归限制以支持更复杂的流程
+                    "configurable": {
+                        "thread_id": trace_id  # 关联 Opik thread_id
+                    },
+                    "metadata": {
+                        "issue_iid": issue_iid,
+                        "project_path": project.path_with_namespace,
+                        "issue_title": issue.get("title", ""),
+                    }
+                }
             )
 
             # 检查执行结果（从分域结构）
@@ -285,6 +297,168 @@ class WebhookService:
             event_type="note",
             project_path=project.path_with_namespace,
         )
+
+    async def _process_merge_request_event(
+        self,
+        payload: GitLabWebhookPayload,
+    ) -> WebhookResponse:
+        """
+        处理 Merge Request 事件
+
+        Args:
+            payload: GitLab webhook 载荷
+
+        Returns:
+            处理响应
+        """
+        mr = payload.object_attributes
+        project = payload.project
+        mr_state = mr.get("state")
+        mr_iid = mr.get("iid")
+
+        logger.info(
+            f"处理 Merge Request 事件: "
+            f"!{mr_iid} - {mr.get('title')} "
+            f"(状态: {mr_state})"
+        )
+
+        logger.info(f"项目: {project.path_with_namespace}")
+
+        # 过滤：只处理 merged 状态的 MR
+        if mr_state != "merged":
+            logger.info(f"MR 状态为 {mr_state}，跳过处理")
+            return WebhookResponse(
+                status="success",
+                message=f"MR !{mr_iid} 状态为 {mr_state}，无需处理",
+                event_type="merge_request",
+                project_path=project.path_with_namespace,
+            )
+
+        # 生成并设置 trace_id
+        trace_id = generate_trace_id()
+        set_trace_id(trace_id)
+
+        logger.info(
+            f"启动 Merge Workflow 处理 MR !{mr_iid}",
+            extra={"trace_id": trace_id, "project_id": project.id},
+        )
+
+        workflow_start = time.time()
+        result = {}  # 初始化 result，以便在 finally 中访问
+        try:
+            from app.graph.workflows.merge_workflow import create_merge_workflow
+            from app.graph.state import init_state_defaults
+
+            # 构造初始状态（注入 trace_id 和 MR 信息）
+            initial_state = {
+                "project_info": project.model_dump(),
+                # 初始化所有分域
+                "sandbox": {},
+                "merge": {
+                    "mr_iid": mr_iid,
+                    "mr_id": mr.get("id"),
+                    "target_branch": mr.get("target_branch"),
+                    "source_branch": mr.get("source_branch"),
+                    "merge_commit_sha": mr.get("merge_commit_sha"),
+                    "changed_files": [],
+                    "indexed_files": [],
+                    "failed_files": [],
+                },
+                "runtime": {
+                    "trace_id": trace_id,  # 注入 trace_id
+                    "executed_nodes": [],
+                    "current_step": "init",
+                    "error": None,
+                    "completed": False,
+                },
+            }
+
+            # 初始化默认值
+            initial_state = init_state_defaults(initial_state)
+
+            # 创建并执行工作流
+            workflow = create_merge_workflow()
+            result = await workflow.ainvoke(
+                initial_state,
+                config={
+                    "recursion_limit": 50,
+                    "configurable": {"thread_id": trace_id},  # 关联 Opik thread_id
+                    "metadata": {
+                        "mr_iid": mr_iid,
+                        "project_path": project.path_with_namespace,
+                        "mr_title": mr.get("title", ""),
+                    },
+                },
+            )
+
+            # 检查执行结果
+            runtime = result.get("runtime", {})
+            executed_nodes = runtime.get("executed_nodes", [])
+            error = runtime.get("error")
+
+            # 记录 workflow 总结指标
+            workflow_duration = (time.time() - workflow_start) * 1000
+            metrics_collector.log_workflow_summary(
+                issue_iid=mr_iid,  # 复用 issue_iid 字段记录 mr_iid
+                project_path=project.path_with_namespace,
+                total_duration_ms=workflow_duration,
+                executed_nodes=executed_nodes,
+                success=error is None,
+                error=error,
+            )
+
+            logger.info(
+                f"Merge Workflow 完成 | "
+                f"执行路径: {' → '.join(executed_nodes)} | "
+                f"错误: {error or 'None'} | "
+                f"耗时: {workflow_duration:.2f}ms"
+            )
+
+            # 获取索引结果
+            merge_info = result.get("merge", {})
+            indexed_files = merge_info.get("indexed_files", [])
+            failed_files = merge_info.get("failed_files", [])
+
+            if error:
+                return WebhookResponse(
+                    status="error",
+                    message=f"MR !{mr_iid} 处理失败: {error}",
+                    event_type="merge_request",
+                    project_path=project.path_with_namespace,
+                )
+
+            return WebhookResponse(
+                status="success",
+                message=f"MR !{mr_iid} 处理完成，索引更新: 成功={len(indexed_files)}, 失败={len(failed_files)}",
+                event_type="merge_request",
+                project_path=project.path_with_namespace,
+            )
+
+        except Exception as e:
+            logger.error(f"Merge Workflow 执行失败: {e}", exc_info=True)
+            return WebhookResponse(
+                status="error",
+                message=f"MR !{mr_iid} 处理失败: {str(e)}",
+                event_type="merge_request",
+                project_path=project.path_with_namespace,
+            )
+        finally:
+            # Sandbox 清理由 SandboxTeardown 节点统一管理
+            # 这里只做兜底检查：如果 workflow 未正常完成且 sandbox 未被销毁
+            sandbox_info = result.get("sandbox", {})
+            sandbox_id = sandbox_info.get("sandbox_id")
+            teardown_status = sandbox_info.get("teardown_status")
+
+            # 只有当 workflow 未走到 teardown 时才兜底清理
+            if sandbox_id and not teardown_status:
+                try:
+                    logger.warning(
+                        f"Merge Workflow 未正常完成 teardown，兜底销毁沙箱: {sandbox_id}"
+                    )
+                    sandbox_manager = get_sandbox_manager()
+                    await sandbox_manager.destroy_sandbox(sandbox_id)
+                except Exception as cleanup_error:
+                    logger.error(f"兜底销毁沙箱 {sandbox_id} 失败: {cleanup_error}")
 
 
 # 全局服务实例

@@ -179,6 +179,98 @@ class GitLabService:
             logger.error(f"GitLab API 请求失败: {str(e)}")
             return None
 
+    @async_retry(
+        max_retries=app_config.gitlab.max_retries if hasattr(app_config.gitlab, 'max_retries') else 3,
+        retriable_exceptions=(httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError)
+    )
+    async def get_merge_request_changes(
+        self,
+        project_id: int,
+        mr_iid: int,
+    ) -> list[dict]:
+        """
+        获取 Merge Request 的变更文件列表（自动重试网络错误和超时）
+
+        Args:
+            project_id: 项目 ID
+            mr_iid: MR IID (项目内唯一 ID)
+
+        Returns:
+            变更文件列表，每项包含：
+            - status: "added" | "modified" | "deleted" | "renamed"
+            - path: 文件路径（新路径）
+            - old_path: 旧路径（仅 renamed 时有值）
+        """
+        logger.info(f"获取 MR 变更文件: 项目 {project_id}, MR !{mr_iid}")
+
+        url = f"{self.gitlab_url}/api/v4/projects/{project_id}/merge_requests/{mr_iid}/changes"
+
+        try:
+            response = await self._client.get(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                changes = data.get("changes", [])
+
+                # 转换为统一格式
+                changed_files = []
+                for change in changes:
+                    new_path = change.get("new_path")
+                    old_path = change.get("old_path")
+                    new_file = change.get("new_file", False)
+                    deleted_file = change.get("deleted_file", False)
+                    renamed_file = change.get("renamed_file", False)
+
+                    # 判断状态
+                    if deleted_file:
+                        status = "deleted"
+                        file_path = old_path
+                    elif renamed_file:
+                        status = "renamed"
+                        file_path = new_path
+                    elif new_file:
+                        status = "added"
+                        file_path = new_path
+                    else:
+                        status = "modified"
+                        file_path = new_path
+
+                    file_change = {
+                        "status": status,
+                        "path": file_path,
+                        "new_path": new_path,
+                    }
+
+                    if renamed_file and old_path != new_path:
+                        file_change["old_path"] = old_path
+
+                    changed_files.append(file_change)
+
+                logger.info(f"成功获取 {len(changed_files)} 个变更文件")
+                return changed_files
+
+            else:
+                error_msg = f"获取 MR 变更失败: HTTP {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_msg += f", {error_data.get('message', '')}"
+                except Exception:
+                    error_msg += f", {response.text}"
+
+                logger.error(error_msg)
+                return []
+
+        except httpx.HTTPStatusError as e:
+            # 4xx 错误不重试
+            if 400 <= e.response.status_code < 500:
+                logger.error(f"GitLab API 请求失败 (4xx): {str(e)}")
+                return []
+            # 5xx 会被重试
+            raise
+        except httpx.HTTPError as e:
+            logger.error(f"GitLab API 请求失败: {str(e)}")
+            return []
+
     async def close(self):
         """关闭 HTTP 客户端"""
         await self._client.aclose()

@@ -8,9 +8,11 @@ Issue Workflow - 重构后的 Issue 处理工作流
 - 工具驱动的 Agent
 """
 
+import os
 from langgraph.graph import StateGraph
 
 from app.core.logger_config import logger
+from app.config.app_config import app_config
 from app.graph.lifecycle.sandbox_bootstrap import SandboxBootstrapNode
 from app.graph.lifecycle.sandbox_teardown import SandboxTeardownNode
 from app.graph.nodes.batch_context_builder_node import BatchContextBuilderNode
@@ -41,7 +43,8 @@ def create_issue_workflow():
     logger.info("创建 Issue 处理工作流")
 
     # 创建节点实例
-    # Lifecycle
+    # Lifecycle (公共前置/后置节点)
+    # SandboxBootstrapNode 使用默认配置，成功后跳转到 "main_router"
     sandbox_bootstrap_node = SandboxBootstrapNode()
     sandbox_teardown_node = SandboxTeardownNode()
 
@@ -112,7 +115,44 @@ def create_issue_workflow():
 
     logger.info("工作流创建完成")
 
-    return graph.compile()
+    # 编译工作流
+    workflow = graph.compile()
+    
+    # Opik tracing 集成（如果已配置且未被环境变量禁用）
+    opik_config = app_config.opik
+    opik_disabled = os.getenv("OPIK_TRACK_DISABLE", "").lower() in ("true", "1", "yes")
+    
+    if opik_config and opik_config.enabled and not opik_disabled:
+        try:
+            from opik.integrations.langchain import OpikTracer, track_langgraph
+            
+            # 配置 Opik 环境变量（如果还没配置）
+            if not os.getenv("OPIK_API_KEY"):
+                os.environ["OPIK_API_KEY"] = opik_config.api_key
+            if not os.getenv("OPIK_WORKSPACE"):
+                os.environ["OPIK_WORKSPACE"] = opik_config.workspace
+            if not os.getenv("OPIK_PROJECT_NAME"):
+                os.environ["OPIK_PROJECT_NAME"] = opik_config.project_name
+            
+            # 创建 OpikTracer 实例
+            opik_tracer = OpikTracer(
+                project_name=opik_config.project_name,
+                tags=["issue-workflow", "langgraph"],
+                metadata={"workflow_version": "1.0"}
+            )
+            
+            # 使用 track_langgraph 包装工作流
+            workflow = track_langgraph(workflow, opik_tracer)
+            logger.info("Opik tracing 已启用")
+        except Exception as e:
+            logger.warning(f"Opik tracing 初始化失败（将继续运行但不记录 traces）: {e}")
+    else:
+        if opik_disabled:
+            logger.info("Opik tracing 已通过 OPIK_TRACK_DISABLE 环境变量禁用")
+        elif not opik_config or not opik_config.enabled:
+            logger.info("Opik tracing 未配置或已在配置中禁用")
+    
+    return workflow
 
 
 # 导出
