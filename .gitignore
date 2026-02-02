@@ -36,9 +36,11 @@ ENV/
 .env.local
 *.local
 
-# Config files
+# Config files (允许 example 示例文件被追踪)
 *.yaml
 *.yml
+!*.example.yaml
+!*.example.yml
 
 # Testing
 .pytest_cache/
