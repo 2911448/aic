@@ -43,7 +43,6 @@ class LLMModelConfig(ClientConfig):
     """LLM 模型配置"""
     api_key: str = Field(description="API密钥")
     base_url: str = Field(description="API基础URL")
-    # timeout 从 ClientConfig 继承
 
 
 class WorkflowConfig(BaseModel):

@@ -47,19 +47,101 @@ def console_format_text(record):
     """控制台日志格式化函数 - 彩色文本格式"""
     # 预处理 message，将其存入 extra 以避免花括号被解析
     record["extra"]["console_msg"] = str(record["message"])
+    
+    # 获取 agent 上下文信息（如果有）
+    from app.core.trace_context import get_agent_context
+    agent_ctx = get_agent_context()
+    
+    # 构建 agent 相关字段（不带颜色标签）
+    agent_name = ""
+    task_id = ""
+    task_desc = ""
+    has_agent = False
+    
+    if agent_ctx:
+        has_agent = True
+        agent_name = agent_ctx.get("agent", "")
+        task_id = agent_ctx.get("task_id", "")
+        task_desc = agent_ctx.get("task_desc", "")
+    
+    # 将 agent 信息存入 extra（纯文本，不带标签）
+    # 对 task_desc 进行截断（50字符）
+    if task_desc and len(task_desc) > 30:
+        task_desc_short = task_desc[:30] + "..."
+    else:
+        task_desc_short = task_desc
+    
+    record["extra"]["agent_name"] = agent_name
+    record["extra"]["task_id"] = task_id
+    record["extra"]["task_desc"] = task_desc_short
+    record["extra"]["has_agent"] = has_agent
 
     # 返回带颜色标签的模板字符串
-    return (
-        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-        "<level>{extra[console_msg]}</level>\n"
-        "{exception}"
-    )
+    # 根据 has_agent 决定是否显示 agent 信息
+    if has_agent:
+        if task_id:
+            # 有 task_id 的情况
+            if task_desc:
+                # 有任务描述
+                return (
+                    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+                    "<level>{level: <8}</level> | "
+                    "<yellow>[{extra[agent_name]}:{extra[task_id]}]</yellow> "
+                    "<blue>({extra[task_desc]})</blue> "
+                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                    "<level>{extra[console_msg]}</level>\n"
+                    "{exception}"
+                )
+            else:
+                # 无任务描述
+                return (
+                    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+                    "<level>{level: <8}</level> | "
+                    "<yellow>[{extra[agent_name]}:{extra[task_id]}]</yellow> "
+                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                    "<level>{extra[console_msg]}</level>\n"
+                    "{exception}"
+                )
+        else:
+            # 无 task_id 的情况
+            if task_desc:
+                # 有任务描述
+                return (
+                    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+                    "<level>{level: <8}</level> | "
+                    "<yellow>[{extra[agent_name]}]</yellow> "
+                    "<blue>({extra[task_desc]})</blue> "
+                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                    "<level>{extra[console_msg]}</level>\n"
+                    "{exception}"
+                )
+            else:
+                # 无任务描述
+                return (
+                    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+                    "<level>{level: <8}</level> | "
+                    "<yellow>[{extra[agent_name]}]</yellow> "
+                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                    "<level>{extra[console_msg]}</level>\n"
+                    "{exception}"
+                )
+    else:
+        # 无 agent 上下文
+        return (
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+            "<level>{extra[console_msg]}</level>\n"
+            "{exception}"
+        )
 
 
 def console_format_json(record):
     """控制台日志格式化函数 - 简洁JSON格式"""
+    # 获取 agent 上下文信息（如果有）
+    from app.core.trace_context import get_agent_context
+    agent_ctx = get_agent_context()
+    
     # 构建简洁的JSON结构
     log_entry = {
         "timestamp": record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
@@ -67,6 +149,10 @@ def console_format_json(record):
         "logger": f"{record['name']}.{record['function']}:{record['line']}",
         "message": str(record["message"]),
     }
+    
+    # 添加 agent 上下文信息
+    if agent_ctx:
+        log_entry["agent"] = agent_ctx
 
     # 添加异常信息
     if record["exception"]:
@@ -82,11 +168,11 @@ def console_format_json(record):
             else None,
         }
 
-    # 添加其他extra字段（排除内部字段）
+            # 添加其他extra字段（排除内部字段）
     extra_fields = {
         k: v
         for k, v in record["extra"].items()
-        if k not in ["console_msg", "file_line", "no_console"]
+        if k not in ["console_msg", "file_line", "no_console", "agent_prefix", "agent_name", "task_id", "task_desc", "has_agent"]
     }
     if extra_fields:
         log_entry["extra"] = extra_fields
@@ -174,6 +260,11 @@ if LOG_FILE_FORMAT == "json":
                     "console_msg",
                     "file_line",
                     "no_console",
+                    "agent_prefix",
+                    "agent_name",
+                    "task_id",
+                    "task_desc",
+                    "has_agent",
                 ]
             }
             if extra_fields:

@@ -53,22 +53,22 @@ class VerificationNode:
     async def __call__(
         self,
         state: IssueProcessState,
-    ) -> Command[Literal["main_router", "sandbox_teardown"]]:
+    ) -> Command[Literal["planner_orchestrator", "sandbox_teardown"]]:
         """
         执行全量静态检查
         
         流程：
-        1. 获取所有已应用补丁的文件列表（从 patching.generated_patches）
+        1. 获取所有已应用补丁的文件列表（从 patching.patches）
         2. 在 sandbox 中运行 mypy + ruff
         3. 解析输出，只统计 error 级别问题
         4. 更新 state.verification.final_verification
-        5. 返回 main_router
+        5. 返回 planner_orchestrator
 
         Args:
             state: 当前工作流状态
 
         Returns:
-            Command对象，返回 main_router
+            Command对象，返回 planner_orchestrator
         """
         update_dict = {}
 
@@ -88,10 +88,15 @@ class VerificationNode:
                 },
             )
 
-            # 获取已应用补丁的文件列表
+            # 获取已应用补丁的文件列表（从结构化 patches）
             patching = state.get("patching", {})
-            generated_patches = patching.get("generated_patches", {})
-            file_paths = list(generated_patches.keys())
+            patches = patching.get("patches", [])
+            
+            # 提取所有被修改的文件路径
+            file_paths = []
+            for patch in patches:
+                file_paths.extend(patch.get("file_paths", []))
+            file_paths = list(set(file_paths))  # 去重
             
             if not file_paths:
                 logger.info("没有文件需要验证，直接通过")
@@ -150,7 +155,7 @@ class VerificationNode:
                 },
             )
 
-            return Command(update=update_dict, goto=NodeName.MAIN_ROUTER.value)
+            return Command(update=update_dict, goto=NodeName.PLANNER_ORCHESTRATOR.value)
 
         except Exception as e:
             logger.error(f"验证流程失败: {e}", exc_info=True)
@@ -385,5 +390,67 @@ class VerificationNode:
         return "warning"
 
 
+# 独立的执行函数（供 run_agent 工具调用）
+async def execute_verification(state: dict) -> dict:
+    """
+    执行 Verification（供 run_agent 工具调用）
+    
+    Args:
+        state: 当前 state
+    
+    Returns:
+        state 更新字典
+    """
+    node = VerificationNode()
+    
+    # 执行验证
+    patching = state.get("patching", {})
+    patches = patching.get("patches", [])
+    
+    file_paths = []
+    for patch in patches:
+        file_paths.extend(patch.get("file_paths", []))
+    file_paths = list(set(file_paths))
+    
+    if not file_paths:
+        return {
+            "verification": {
+                "final_verification": {
+                    "passed": True,
+                    "all_issues": [],
+                    "error_count": 0,
+                    "warning_count": 0,
+                    "mypy_raw_output": "",
+                    "ruff_raw_output": "",
+                },
+            },
+            "__execution__": {
+                "reasoning": "没有需要验证的文件",
+                "result_hint": {
+                    "passed": True,
+                    "error_count": 0,
+                    "warning_count": 0,
+                },
+            },
+        }
+    
+    # 运行全量检查
+    result = await node._run_full_static_check(state, file_paths)
+    
+    return {
+        "verification": {
+            "final_verification": result.model_dump(),
+        },
+        "__execution__": {
+            "reasoning": f"全量静态检查完成，检查了 {len(file_paths)} 个文件",
+            "result_hint": {
+                "passed": result.passed,
+                "error_count": result.error_count,
+                "warning_count": result.warning_count,
+            },
+        },
+    }
+
+
 # 导出
-__all__ = ["VerificationNode"]
+__all__ = ["VerificationNode", "execute_verification"]

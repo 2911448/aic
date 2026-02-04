@@ -154,31 +154,6 @@ class GitLabService:
                 error=error_msg,
             )
 
-    async def get_project_info(self, project_id: int) -> dict | None:
-        """
-        获取项目信息
-
-        Args:
-            project_id: 项目 ID
-
-        Returns:
-            项目信息字典，失败返回 None
-        """
-        url = f"{self.gitlab_url}/api/v4/projects/{project_id}"
-
-        try:
-            response = await self._client.get(url)
-
-            if response.status_code == 200:
-                return response.json()
-            else:
-                logger.error(f"获取项目信息失败: HTTP {response.status_code}")
-                return None
-
-        except httpx.HTTPError as e:
-            logger.error(f"GitLab API 请求失败: {str(e)}")
-            return None
-
     @async_retry(
         max_retries=app_config.gitlab.max_retries if hasattr(app_config.gitlab, 'max_retries') else 3,
         retriable_exceptions=(httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError)

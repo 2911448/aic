@@ -138,7 +138,7 @@ class DockerClient:
                 container_config["network_mode"] = config.network_mode
 
             logger.info(
-                f"创建容器: image={config.docker_image}, workspace={workspace_host_path}"
+                f"创建容器: image: {config.docker_image}, workspace: {workspace_host_path}"
             )
 
             # 创建容器

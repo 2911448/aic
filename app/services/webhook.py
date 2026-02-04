@@ -141,30 +141,10 @@ class WebhookService:
             from app.graph.workflows.issue_workflow import create_issue_workflow
             from app.graph.state import IssueProcessState, init_state_defaults
 
-            # 构造初始状态（注入 trace_id）
+            # 构造初始状态（只提供必要输入，其余交给 init_state_defaults）
             initial_state: IssueProcessState = {
                 "issue_data": issue,
                 "project_info": project.model_dump(),
-                # 初始化所有分域（通过 helper 函数）
-                "sandbox": {},
-                "analysis": {"search_queries": []},
-                "retrieval": {"retrieved_code": []},
-                "targeting": {
-                    "target_queue": [],
-                    "current_expansion_depth": 0,
-                    "max_expansion_depth": 3,
-                },
-                "context": {},
-                "patching": {
-                    "patch_candidates": [],
-                    "generated_patches": {},
-                    "patch_retry_count": 0,
-                    "retry_history": [],
-                },
-                "verification": {"verification_results_by_candidate": {}},
-                "impact": {},
-                "review": {},
-                "delivery": {},
                 "runtime": {
                     "trace_id": trace_id,  # 注入 trace_id
                     "executed_nodes": [],

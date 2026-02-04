@@ -4,7 +4,6 @@ Syntax Check Tool - Python 语法检查
 """
 
 import ast
-from typing import Optional
 
 from langchain_core.tools import tool
 
@@ -13,7 +12,7 @@ from app.core.logger_config import logger
 
 def check_python_syntax_core(
     code: str,
-    file_path: Optional[str] = None
+    file_path: str | None = None
 ) -> dict:
     """
     检查 Python 代码的语法正确性
@@ -74,7 +73,7 @@ def check_python_syntax_core(
 @tool
 def check_python_syntax(
     code: str,
-    file_path: Optional[str] = None
+    file_path: str | None = None
 ) -> dict:
     """
     检查 Python 代码的语法正确性 - LangChain Agent 工具版本

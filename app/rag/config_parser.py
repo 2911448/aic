@@ -258,7 +258,3 @@ class ConfigFileParser:
             return True
         
         return False
-
-
-# 全局实例
-config_file_parser = ConfigFileParser()

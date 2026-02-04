@@ -166,7 +166,7 @@ async def search_code(
             # 显示摘要（如果有）
             summary = entity.get("summary")
             if summary:
-                print(f"摘要: {summary[:100]}...")
+                print(f"摘要: {summary}")
 
             print(f"\n代码片段:\n{entity.get('content')[:200]}...")
             print()

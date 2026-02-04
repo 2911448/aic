@@ -1,7 +1,7 @@
 """
-LangGraph State definitions for Issue processing workflow (Refactored with Domain Grouping)
+LangGraph State definitions for Issue processing workflow
 
-State 重构说明：
+State 说明：
 - 从平铺字段改为分域结构，提升可维护性和清晰度
 - 每个域（sandbox、analysis、retrieval等）独立管理相关字段
 - 使用 TypedDict 嵌套结构，保持与 LangGraph 兼容性
@@ -27,27 +27,31 @@ def reduce_messages(
 
 
 class SandboxInfo(TypedDict, total=False):
-    """Sandbox 生命周期信息（由 SandboxBootstrap 填充）"""
+    """Sandbox 生命周期信息（SandboxBootstrap 产出）"""
 
-    sandbox_id: Optional[str]  # Sandbox ID
+    sandbox_id: Optional[str]  
     repo_path: Optional[str]  # Git repository path in sandbox
-    default_branch: Optional[str]  # Default branch name (e.g., main, master)
+    default_branch: Optional[str]  
     ignore_patterns: list[str]  # 从 .gitignore 读取的忽略规则
 
 
 class AnalysisInfo(TypedDict, total=False):
-    """Issue 分析结果（IssueAnalyst 产出）"""
+    """Issue 分析结果（PlannerAgent 产出 - Issue 理解部分 + OmniExplorer 产出）"""
 
-    issue_type: Optional[str]  # bug or feature
-    branch_name_suggestion: Optional[str]  # LLM生成的分支名建议
-    search_queries: list[str]  # Generated RAG search queries
+    search_queries: list[str]  # RAG 搜索查询列表（用于代码检索）
+    
+    # OmniExplorer 产出
+    semantic_hits: list[dict]  # 语义检索结果
+    anchor_symbols: list[dict]  # 锚定符号列表
+    ripple_graph: dict  # 调用涟漪图
+    signature_contracts: dict[str, str]  # 函数签名契约  
 
 
 class RetrievalInfo(TypedDict, total=False):
     """代码检索结果（CodeRetriever 产出）"""
 
-    retrieved_code: list[dict]  # RAG retrieved code snippets
-    retrieval_meta: Optional[dict]  # 检索元信息：score、rerank等
+    retrieved_code: list[dict]  
+    retrieval_meta: Optional[dict]  
 
 
 class TargetingInfo(TypedDict, total=False):
@@ -56,68 +60,38 @@ class TargetingInfo(TypedDict, total=False):
     current_target: Optional[dict]  # 当前聚焦的目标符号 (TargetContext)
 
 
-class ContextInfo(TypedDict, total=False):
-    """可编辑上下文切片（ContextSliceBuilder 产出）"""
-
-    editable_context: Optional[dict]  # EditableContextSlice：可编辑代码 + 依赖签名
-    batch_contexts: list[dict]  # 批量上下文（BatchContextBuilder 产出）
-
-
 class PatchingInfo(TypedDict, total=False):
-    """补丁生成与候选管理（PatchFlow 产出）"""
+    """补丁生成与管理（CodeAgent 产出）- 结构化版本"""
 
-    patch_candidates: list[dict]  # 候选补丁列表
-    selected_patch: Optional[dict]  # 选中的补丁（PatchJudge 产出）
-    generated_patches: dict[str, str]  # 已生成的补丁 {file_path: patch_content}
-    current_patch: Optional[str]  # 当前生成的补丁 (unified diff)
-    current_modified_code: Optional[str]  # 当前补丁对应的修改后的完整代码
-    patch_retry_count: int  # 补丁重试次数
-    retry_history: list[dict]  # 重试历史记录
+    patches: list[dict]  # 补丁产物列表（PatchArtifact 的 dict 表示）
     applied_history: list[dict]  # 补丁应用历史（记录每轮apply结果/失败原因）
 
 
 class VerificationInfo(TypedDict, total=False):
     """验证结果（VerificationFlow 产出）"""
 
-    verification_results_by_candidate: dict[str, dict]  # 各候选补丁的验证结果
-    final_verification: Optional[dict]  # 最终验证结果：mypy + ruff 全量检查
-    light_results: list[dict]  # 轻量验证结果（每轮批次自检结果）
-    
-    # RefineAgent 修复循环相关字段
-    refine_retry_count: int  # RefineAgent 修复循环次数
-    refine_history: list[dict]  # RefineAgent 修复历史记录
-
-
-class ImpactInfo(TypedDict, total=False):
-    """影响分析（ImpactAnalyzer 产出）"""
-
-    impact_report: Optional[dict]  # ImpactReport：影响范围、建议扩散目标
-
-
-class RippleInfo(TypedDict, total=False):
-    """涟漪递归队列管理（Ripple Loop 产出）"""
-
-    pending_file_tasks: list[dict]  # 待处理的文件任务队列（每项包含 file_path, reason, symbols, priority 等）
-    inflight_batch: list[dict]  # 当前处理的批次（最多5个文件任务）
-    seen_files: list[str]  # 已处理/已入队的文件路径（仅用于历史追踪，不再用于过滤）
-    iteration: int  # 当前循环轮次
-    max_iterations: int  # 最大循环次数（防止无穷涟漪）
-    last_applied_files: list[str]  # 上一批次成功应用补丁的文件路径列表（用于增量扫描）
-    last_signature_changes: dict[str, list[dict]]  # 上一批次的签名变更指纹 {file_path: [{"symbol_name": str, "symbol_type": str, "change_type": str}]}
-
-
-class ReviewInfo(TypedDict, total=False):
-    """代码评审结果（Reviewer 产出）"""
-
-    review_report: Optional[str]  # Markdown 格式的评审报告
+    final_verification: Optional[dict]  # 最终验证结果：mypy + ruff 全量检查（包含 passed, error_count, warnings, errors 等）
 
 
 class DeliveryInfo(TypedDict, total=False):
-    """MR 提交结果（MRSubmitter 产出）"""
+    """MR 提交结果（MRPublisher 产出）- 包含评审报告"""
 
     mr_url: Optional[str]  # Merge Request URL
     mr_iid: Optional[int]  # Merge Request IID
     branch_name: Optional[str]  # 创建的分支名称
+    review_artifact: Optional[dict]  # 结构化评审产物（ReviewArtifact 的 dict 表示）
+
+
+class PlanningInfo(TypedDict, total=False):
+    """计划与调度信息（Planner 决策 → TaskRunner 执行）"""
+
+    retry_count: int  # 重试计数器（用于熔断验证/修复循环）
+    orchestration_history: list[dict]  # 编排历史记录（包含 Planner 决策 + TaskRunner 执行结果）
+    next_tasks: list[dict]  # Planner 决策的待执行任务列表（由 TaskRunner 消费）
+    last_decision: Optional[dict]  # 上一次 Planner 决策（用于可观测性）
+    idle_count: int  # 无进展计数（用于空转熔断）
+    round: int  # 当前执行轮次（TaskRunner 每次执行后 +1）
+    last_round_summary: str  # 最近一轮执行的汇总摘要（单agent时为该agent的reasoning；多agent时为多行汇总，每行≤300字）
 
 
 class RuntimeInfo(TypedDict, total=False):
@@ -154,18 +128,16 @@ class IssueProcessState(TypedDict, total=False):
 
     分域结构说明：
     - sandbox: SandboxBootstrap 填充，其他节点只读
-    - analysis: IssueAnalyst 产出
-    - retrieval: CodeRetriever 产出
-    - targeting: EntrySelector & ExpansionController 管理
-    - context: ContextSliceBuilder 产出
-    - patching: PatchFlow (PatchWriter + PatchJudge) 产出
-    - verification: VerificationFlow 产出
-    - impact: ImpactAnalyzer 产出
-    - ripple: Ripple Loop 队列管理（全局扫描、批量处理、增量涟漪）
-    - review: Reviewer 产出
-    - delivery: MRSubmitter 产出
-    - merge: Merge Request 处理信息（复用于 merge workflow）
-    - runtime: 流程控制元数据
+    - analysis: PlannerAgent 产出 - Issue 理解
+    - planning: PlannerAgent + Scheduler 产出 - 任务编排（execution_plan, task_status, retry_count）
+    - retrieval: CodeRetriever 产出（检索到的代码片段，基于 analysis.search_queries）
+    - targeting: EntrySelector 产出（选定的目标符号）
+    - patching: CodeAgent 产出（结构化补丁产物列表 - PatchArtifact[]）
+    - verification: VerificationFlow 产出（mypy/ruff 验证结果）
+    - delivery: MRPublisher 产出（MR URL, branch_name, review_artifact）
+    - merge: Merge Request 处理信息（用于 merge workflow）
+    - runtime: 流程控制元数据（executed_nodes, error, trace_id）
+    - execution_history: 执行轨迹记录（字符串列表，格式：[Round N] Agent: xxx | Task: "..." | Result: xxx）
     """
 
     # Message History (for LLM conversation)
@@ -177,18 +149,16 @@ class IssueProcessState(TypedDict, total=False):
 
     # Domain-Specific Groups
     sandbox: SandboxInfo  # Sandbox 生命周期信息
+    planning: PlanningInfo  # Planner 与 Scheduler 信息
     analysis: AnalysisInfo  # Issue 分析结果
     retrieval: RetrievalInfo  # 代码检索结果
-    targeting: TargetingInfo  # 切入点与扩散控制
-    context: ContextInfo  # 可编辑上下文切片
-    patching: PatchingInfo  # 补丁生成与管理
+    targeting: TargetingInfo  # 切入点选择
+    patching: PatchingInfo  # 补丁生成与管理（结构化）
     verification: VerificationInfo  # 验证结果
-    impact: ImpactInfo  # 影响分析
-    ripple: RippleInfo  # 涟漪递归队列管理
-    review: ReviewInfo  # 代码评审结果
-    delivery: DeliveryInfo  # MR 提交结果
+    delivery: DeliveryInfo  # MR 提交结果（含评审报告）
     merge: MergeInfo  # Merge Request 处理信息
     runtime: RuntimeInfo  # 执行元数据与流程控制
+    execution_history: list[str]  # 执行轨迹记录（每轮 agent 执行的摘要）
 
 
 # ============================================================================
@@ -204,45 +174,39 @@ def init_state_defaults(state: IssueProcessState) -> IssueProcessState:
     """
     if "sandbox" not in state:
         state["sandbox"] = {}
+    if "planning" not in state:
+        state["planning"] = {
+            "retry_count": 0,
+            "orchestration_history": [],
+            "next_tasks": [],
+            "last_decision": None,
+            "idle_count": 0,
+            "round": 0,
+            "last_round_summary": "",
+        }
     if "analysis" not in state:
-        state["analysis"] = {"search_queries": []}
+        state["analysis"] = {
+            "search_queries": [],
+            "semantic_hits": [],
+            "anchor_symbols": [],
+            "ripple_graph": {"center": None, "nodes": [], "edges": []},
+            "signature_contracts": {},
+        }
     if "retrieval" not in state:
         state["retrieval"] = {"retrieved_code": []}
     if "targeting" not in state:
         state["targeting"] = {}
-    if "context" not in state:
-        state["context"] = {}
     if "patching" not in state:
         state["patching"] = {
-            "patch_candidates": [],
-            "generated_patches": {},
-            "patch_retry_count": 0,
-            "retry_history": [],
+            "patches": [],
             "applied_history": [],
         }
     if "verification" not in state:
-        state["verification"] = {
-            "verification_results_by_candidate": {},
-            "light_results": [],
-            "refine_retry_count": 0,
-            "refine_history": [],
-        }
-    if "impact" not in state:
-        state["impact"] = {}
-    if "ripple" not in state:
-        state["ripple"] = {
-            "pending_file_tasks": [],
-            "inflight_batch": [],
-            "seen_files": [],
-            "iteration": 0,
-            "max_iterations": 10,
-            "last_applied_files": [],
-            "last_signature_changes": {},
-        }
-    if "review" not in state:
-        state["review"] = {}
+        state["verification"] = {}
     if "delivery" not in state:
-        state["delivery"] = {}
+        state["delivery"] = {
+            "review_artifact": None,
+        }
     if "merge" not in state:
         state["merge"] = {
             "changed_files": [],
@@ -256,6 +220,8 @@ def init_state_defaults(state: IssueProcessState) -> IssueProcessState:
             "error": None,
             "completed": False,
         }
+    if "execution_history" not in state:
+        state["execution_history"] = []
 
     return state
 

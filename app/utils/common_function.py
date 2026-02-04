@@ -4,12 +4,7 @@
 
 import json
 import os
-from typing import TYPE_CHECKING
-
 from app.core.logger_config import logger
-
-if TYPE_CHECKING:
-    from app.sandbox.file_service import FileService
 
 
 def parse_json_response(text: str) -> dict:
@@ -49,68 +44,8 @@ def parse_json_response(text: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
-        logger.error(f"JSON解析失败: {e}\n响应文本: {text[:500]}")
+        logger.error(f"JSON解析失败: {e}")
         raise ValueError(f"无法解析LLM响应为JSON: {e}")
-
-
-# ============================================================================
-# Sandbox 代码读取工具
-# ============================================================================
-
-async def read_latest_code_from_sandbox(
-    file_service: "FileService",
-    retrieved_code: list[dict]
-) -> list[dict]:
-    """
-    从 sandbox 读取应用 patch 后的最新代码
-    
-    该方法用于在代码修改后，从 sandbox 环境读取文件的最新状态，
-    以便进行准确的依赖分析和影响扫描。
-    
-    Args:
-        file_service: 文件服务实例（FileService）
-        retrieved_code: 检索到的代码片段列表（包含文件路径信息）
-    
-    Returns:
-        最新代码片段列表，每项包含 file_path, content, language, symbol_name
-    """
-    latest_snippets = []
-    seen_files = set()
-
-    for snippet in retrieved_code:
-        file_path = snippet.get("file_path", "")
-        if not file_path or file_path in seen_files:
-            continue
-        
-        seen_files.add(file_path)
-        
-        try:
-            # 读取 sandbox 中的最新文件内容
-            latest_content = await file_service.read_file(file_path)
-            
-            latest_snippets.append({
-                "file_path": file_path,
-                "content": latest_content,
-                "language": snippet.get("language", "python"),
-                "symbol_name": snippet.get("symbol_name", ""),
-            })
-            
-            logger.debug(f"成功读取 sandbox 文件: {file_path}")
-            
-        except Exception as e:
-            logger.warning(f"读取 sandbox 文件 {file_path} 失败: {e}")
-            # 降级：使用原始检索内容
-            if snippet.get("content"):
-                latest_snippets.append({
-                    "file_path": file_path,
-                    "content": snippet.get("content", ""),
-                    "language": snippet.get("language", "python"),
-                    "symbol_name": snippet.get("symbol_name", ""),
-                })
-                logger.debug(f"↓ 降级使用检索内容: {file_path}")
-            continue
-
-    return latest_snippets
 
 
 def detect_language(file_path: str, default: str = "python") -> str:

@@ -1,36 +1,20 @@
 """
-Issue Workflow - 重构后的 Issue 处理工作流
-
-采用 Multi-Agent 架构：
-- Sandbox 生命周期前置（SandboxBootstrap/Teardown）
-- 确定性路由（MainRouter）替代 LLM 调度
-- 子图封装复杂流程（PatchFlow, VerificationFlow）
-- 工具驱动的 Agent
+Issue Workflow
 """
 
-import os
 from langgraph.graph import StateGraph
 
 from app.core.logger_config import logger
-from app.config.app_config import app_config
 from app.graph.lifecycle.sandbox_bootstrap import SandboxBootstrapNode
 from app.graph.lifecycle.sandbox_teardown import SandboxTeardownNode
-from app.graph.nodes.batch_context_builder_node import BatchContextBuilderNode
-from app.graph.nodes.code_retriever_agent_node import CodeRetrieverAgentNode
-from app.graph.nodes.context_slice_builder_node import ContextSliceBuilderNode
-from app.graph.nodes.entry_selector_agent_node import EntrySelectorAgentNode
-from app.graph.nodes.global_impact_scan_node import GlobalImpactScanNode
-from app.graph.nodes.incremental_impact_scan_node import IncrementalImpactScanNode
-from app.graph.nodes.issue_insight_agent_node import IssueInsightAgentNode
-from app.graph.nodes.mr_submitter_agent_node import MRSubmitterAgentNode
-from app.graph.nodes.queue_manager_node import QueueManagerNode
-from app.graph.nodes.refactoring_agent_batch_node import RefactoringAgentBatchNode
-from app.graph.nodes.refine_agent_node import RefineAgentNode
-from app.graph.nodes.reviewer_agent_node import ReviewerAgentNode
+from app.graph.nodes.planner_agent_node import PlannerAgentNode
+from app.graph.nodes.task_runner_node import TaskRunnerNode
+from app.graph.nodes.omni_explorer_node import OmniExplorerNode
+from app.graph.nodes.code_agent_node import CodeAgentNode
+from app.graph.nodes.mr_publisher_agent_node import MRPublisherAgentNode
 from app.graph.nodes.verification_node import VerificationNode
-from app.graph.routers.main_router import MainRouterNode
 from app.graph.state import IssueProcessState, NodeName
-from app.graph.subgraphs.patch_flow import PatchFlowNode
+from app.graph.workflows.opik_tracing import track_langgraph_workflow_with_opik
 
 
 def create_issue_workflow():
@@ -42,115 +26,51 @@ def create_issue_workflow():
     """
     logger.info("创建 Issue 处理工作流")
 
-    # 创建节点实例
     # Lifecycle (公共前置/后置节点)
-    # SandboxBootstrapNode 使用默认配置，成功后跳转到 "main_router"
-    sandbox_bootstrap_node = SandboxBootstrapNode()
+    sandbox_bootstrap_node = SandboxBootstrapNode(next_node=NodeName.PLANNER_ORCHESTRATOR.value)
     sandbox_teardown_node = SandboxTeardownNode()
 
-    # Routers / Controllers
-    main_router_node = MainRouterNode(max_patch_retries=3)
-
-    # Core Agents / Nodes
-    issue_analyst_node = IssueInsightAgentNode()
-    code_retriever_node = CodeRetrieverAgentNode()
-    entry_selector_node = EntrySelectorAgentNode()
-    context_slice_builder_node = ContextSliceBuilderNode()
-
-    # Subgraphs / Complex Flows
-    patch_flow_node = PatchFlowNode()
+    # Planner Orchestrator (LLM 决策中心)
+    planner_orchestrator_node = PlannerAgentNode()
     
-    # Verification Node
+    # TaskRunner (系统派发执行节点)
+    task_runner_node = TaskRunnerNode()
+    
+    # 可被调度的 Agent 节点（通过 TaskRunner 调用）
+    omni_explorer_node = OmniExplorerNode()
+    code_agent_node = CodeAgentNode()
     verification_node = VerificationNode()
-
-    # Ripple Loop Nodes
-    global_impact_scan_node = GlobalImpactScanNode(max_scan_files=500)
-    queue_manager_node = QueueManagerNode(batch_size=5)
-    batch_context_builder_node = BatchContextBuilderNode()
-    refactoring_agent_batch_node = RefactoringAgentBatchNode(max_retries=3)
-    incremental_impact_scan_node = IncrementalImpactScanNode()
-
-    # Other Agents
-    refine_agent_node = RefineAgentNode()
-    reviewer_node = ReviewerAgentNode()
-    mr_submitter_node = MRSubmitterAgentNode()
+    mr_publisher_node = MRPublisherAgentNode()
 
     # 创建状态图
     graph = StateGraph(IssueProcessState)
 
     # 添加节点
-    # Lifecycle
     graph.add_node(NodeName.SANDBOX_BOOTSTRAP.value, sandbox_bootstrap_node)
     graph.add_node(NodeName.SANDBOX_TEARDOWN.value, sandbox_teardown_node)
 
-    # Routers / Controllers
-    graph.add_node(NodeName.MAIN_ROUTER.value, main_router_node)
+    graph.add_node(NodeName.PLANNER_ORCHESTRATOR.value, planner_orchestrator_node)
+    graph.add_node(NodeName.TASK_RUNNER.value, task_runner_node)
 
-    # Core Agents / Nodes
-    graph.add_node(NodeName.ISSUE_ANALYST.value, issue_analyst_node)
-    graph.add_node(NodeName.CODE_RETRIEVER.value, code_retriever_node)
-    graph.add_node(NodeName.ENTRY_SELECTOR.value, entry_selector_node)
-    graph.add_node(NodeName.CONTEXT_SLICE_BUILDER.value, context_slice_builder_node)
-
-    # Subgraphs / Complex Flows
-    graph.add_node(NodeName.PATCH_FLOW.value, patch_flow_node)
-    
-    # Verification Node
+    graph.add_node(NodeName.OMNI_EXPLORER.value, omni_explorer_node)
+    graph.add_node(NodeName.CODE_AGENT.value, code_agent_node)
     graph.add_node(NodeName.VERIFICATION_FLOW.value, verification_node)
-
-    # Ripple Loop Nodes
-    graph.add_node(NodeName.GLOBAL_IMPACT_SCAN.value, global_impact_scan_node)
-    graph.add_node(NodeName.QUEUE_MANAGER.value, queue_manager_node)
-    graph.add_node(NodeName.BATCH_CONTEXT_BUILDER.value, batch_context_builder_node)
-    graph.add_node(NodeName.REFACTORING_AGENT_BATCH.value, refactoring_agent_batch_node)
-    graph.add_node(NodeName.INCREMENTAL_IMPACT_SCAN.value, incremental_impact_scan_node)
-
-    # Other Agents
-    graph.add_node(NodeName.REFINE_AGENT.value, refine_agent_node)
-    graph.add_node(NodeName.REVIEWER.value, reviewer_node)
-    graph.add_node(NodeName.MR_SUBMITTER.value, mr_submitter_node)
+    graph.add_node(NodeName.MR_PUBLISHER.value, mr_publisher_node)
 
     # 设置入口点：START → SandboxBootstrap
     graph.set_entry_point(NodeName.SANDBOX_BOOTSTRAP.value)
 
     logger.info("工作流创建完成")
 
-    # 编译工作流
     workflow = graph.compile()
     
-    # Opik tracing 集成（如果已配置且未被环境变量禁用）
-    opik_config = app_config.opik
-    opik_disabled = os.getenv("OPIK_TRACK_DISABLE", "").lower() in ("true", "1", "yes")
-    
-    if opik_config and opik_config.enabled and not opik_disabled:
-        try:
-            from opik.integrations.langchain import OpikTracer, track_langgraph
-            
-            # 配置 Opik 环境变量（如果还没配置）
-            if not os.getenv("OPIK_API_KEY"):
-                os.environ["OPIK_API_KEY"] = opik_config.api_key
-            if not os.getenv("OPIK_WORKSPACE"):
-                os.environ["OPIK_WORKSPACE"] = opik_config.workspace
-            if not os.getenv("OPIK_PROJECT_NAME"):
-                os.environ["OPIK_PROJECT_NAME"] = opik_config.project_name
-            
-            # 创建 OpikTracer 实例
-            opik_tracer = OpikTracer(
-                project_name=opik_config.project_name,
-                tags=["issue-workflow", "langgraph"],
-                metadata={"workflow_version": "1.0"}
-            )
-            
-            # 使用 track_langgraph 包装工作流
-            workflow = track_langgraph(workflow, opik_tracer)
-            logger.info("Opik tracing 已启用")
-        except Exception as e:
-            logger.warning(f"Opik tracing 初始化失败（将继续运行但不记录 traces）: {e}")
-    else:
-        if opik_disabled:
-            logger.info("Opik tracing 已通过 OPIK_TRACK_DISABLE 环境变量禁用")
-        elif not opik_config or not opik_config.enabled:
-            logger.info("Opik tracing 未配置或已在配置中禁用")
+    # Opik tracing（可选）
+    workflow = track_langgraph_workflow_with_opik(
+        workflow,
+        workflow_label="issue-workflow",
+        tags=["issue-workflow", "langgraph"],
+        metadata={"workflow_version": "1.0"},
+    )
     
     return workflow
 

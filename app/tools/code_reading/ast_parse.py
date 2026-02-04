@@ -4,7 +4,6 @@ AST Parse Tool - 解析代码的抽象语法树
 这是一个可被 LangChain Agent 调用的工具。
 """
 
-from typing import Optional
 
 from langchain_core.tools import tool
 
@@ -15,7 +14,7 @@ from app.utils.tree_sitter_service import tree_sitter_service
 def parse_code_ast_core(
     code: str,
     language: str,
-    file_path: Optional[str] = None
+    file_path: str | None = None
 ) -> dict:
     """
     核心 AST 解析函数（可直接调用）
@@ -80,7 +79,7 @@ def parse_code_ast_core(
 def parse_code_ast(
     code: str,
     language: str,
-    file_path: Optional[str] = None
+    file_path: str | None = None
 ) -> dict:
     """
     解析代码的 AST（抽象语法树）- LangChain Agent 工具版本

@@ -82,52 +82,6 @@ class GitLabLabel(BaseModel):
         return parse_gitlab_datetime(v)
 
 
-class GitLabIssue(BaseModel):
-    """GitLab Issue 信息"""
-
-    id: int
-    title: str
-    assignee_ids: list[int] = []
-    assignee_id: Optional[int] = None
-    author_id: int
-    project_id: int
-    created_at: datetime
-    updated_at: datetime
-    position: int = 0
-    branch_name: Optional[str] = None
-    description: Optional[str] = None
-    milestone_id: Optional[int] = None
-    state: str  # opened, closed, etc.
-    iid: int  # Issue 的项目内 ID
-    labels: list[GitLabLabel] = []
-    due_date: Optional[str] = None
-    url: str
-
-    @field_validator("created_at", "updated_at", mode="before")
-    @classmethod
-    def parse_datetime(cls, v: Any) -> datetime:
-        """解析日期时间字段"""
-        return parse_gitlab_datetime(v)
-
-
-class GitLabIssueAttributes(BaseModel):
-    """GitLab Issue 属性变化"""
-
-    title: Optional[str] = None
-    description: Optional[str] = None
-    state: Optional[str] = None
-    updated_at: Optional[datetime] = None
-    labels: Optional[list[GitLabLabel]] = None
-
-    @field_validator("updated_at", mode="before")
-    @classmethod
-    def parse_datetime(cls, v: Any) -> Optional[datetime]:
-        """解析日期时间字段"""
-        if v is None:
-            return None
-        return parse_gitlab_datetime(v)
-
-
 class GitLabWebhookPayload(BaseModel):
     """GitLab Webhook 完整载荷"""
 

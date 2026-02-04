@@ -4,18 +4,19 @@ Tools Registry - 工具注册与白名单管理
 为不同的 Agent 分配不同的工具集合，实现权限控制。
 """
 
-from typing import Callable, List
+from collections.abc import Callable
 
 from app.core.logger_config import logger
 
 # 导入所有工具
 from app.tools.sandbox.read_file import read_file_from_sandbox
-from app.tools.sandbox.apply_patch import apply_patch_in_sandbox
+from app.tools.sandbox.write_file import write_file_to_sandbox
 from app.tools.sandbox.run_cmd import run_command_in_sandbox
 from app.tools.code_reading.ast_parse import parse_code_ast
-from app.tools.code_reading.search_symbol import search_symbol_in_code
-from app.tools.code_reading.dependency_graph import analyze_dependencies
 from app.tools.code_quality.syntax_check import check_python_syntax
+from app.tools.search.semantic_search import semantic_search
+from app.tools.search.symbolic_search import symbolic_search
+from app.tools.analysis.structural_analysis import structural_analysis
 
 
 class ToolRegistry:
@@ -31,54 +32,53 @@ class ToolRegistry:
         self._all_tools = {
             # Sandbox 工具
             "read_file": read_file_from_sandbox,
-            "apply_patch": apply_patch_in_sandbox,
+            "write_file": write_file_to_sandbox,
             "run_command": run_command_in_sandbox,
             
             # Code Reading 工具
             "parse_ast": parse_code_ast,
-            "search_symbol": search_symbol_in_code,
-            "analyze_dependencies": analyze_dependencies,
             
             # Code Quality 工具
             "check_syntax": check_python_syntax,
+            
+            # OmniExplorer 三类工具
+            "semantic_search": semantic_search,
+            "symbolic_search": symbolic_search,
+            "structural_analysis": structural_analysis,
         }
         
         # Agent 工具白名单配置
         self._agent_tool_whitelist = {
-            # PatchWriter Agent: 需要读文件、解析 AST、搜索符号、代码质量检查
-            "patch_writer": [
+            # OmniExplorer: Semantic→Symbolic→Structural 三段式
+            "omni_explorer": [
+                "semantic_search",
+                "symbolic_search",
+                "structural_analysis",
                 "read_file",
                 "parse_ast",
-                "search_symbol",
-                "check_syntax",
-                "run_command",  # 执行任意命令
+                "run_command",
             ],
             
-            # Refine Agent: 需要读文件、代码质量检查
-            "refine": [
+            # CodeAgent: 生成代码能力（读+写）
+            "code_agent": [
                 "read_file",
                 "parse_ast",
-                "search_symbol",
-                "analyze_dependencies",
                 "check_syntax",
-                "run_command",  # 执行任意命令
+                "run_command",
             ],
             
-            # Entry Selector Agent: 需要读文件、解析 AST 以确定切入点
-            "entry_selector": [
-                "read_file",
-                "parse_ast",
-                "search_symbol",
-                "run_command",  # 执行任意命令
+            # Verification: 全量验证
+            "verification": [
+                "run_command",
             ],
         }
     
-    def get_tools_for_agent(self, agent_name: str) -> List[Callable]:
+    def get_tools_for_agent(self, agent_name: str) -> list[Callable]:
         """
         获取指定 Agent 可用的工具列表
         
         Args:
-            agent_name: Agent 名称（patch_writer, refine, entry_selector）
+            agent_name: Agent 名称（omni_explorer, code_agent, verification）
         
         Returns:
             工具函数列表
@@ -96,7 +96,7 @@ class ToolRegistry:
         logger.info(f"为 Agent '{agent_name}' 加载了 {len(tools)} 个工具")
         return tools
     
-    def get_all_tools(self) -> List[Callable]:
+    def get_all_tools(self) -> list[Callable]:
         """
         获取所有可用工具
         
@@ -119,7 +119,7 @@ class ToolRegistry:
         self._all_tools[name] = tool_func
         logger.info(f"注册工具: {name}")
     
-    def add_agent_whitelist(self, agent_name: str, tool_names: List[str]):
+    def add_agent_whitelist(self, agent_name: str, tool_names: list[str]):
         """
         为 Agent 添加工具白名单
         
@@ -141,12 +141,12 @@ def get_tool_registry() -> ToolRegistry:
 
 
 # 便捷函数
-def get_tools_for_agent(agent_name: str) -> List[Callable]:
+def get_tools_for_agent(agent_name: str) -> list[Callable]:
     """
     获取指定 Agent 可用的工具列表
     
     Args:
-        agent_name: Agent 名称
+        agent_name: Agent 名称（omni_explorer, code_agent, verification）
     
     Returns:
         工具函数列表

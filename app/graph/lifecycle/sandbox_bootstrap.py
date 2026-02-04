@@ -1,6 +1,5 @@
 """
 Sandbox Bootstrap Node - Sandbox 生命周期前置节点
-在 Issue 请求进入时创建 sandbox 并 clone 仓库
 """
 
 import os
@@ -15,7 +14,6 @@ from app.rag.indexer import code_indexer
 from app.sandbox.file_service import FileService
 from app.sandbox.git_service import GitService
 from app.sandbox.manager import get_sandbox_manager
-from app.sandbox.models import GitAuthConfig, GitAuthType, SandboxConfig
 from app.utils.gitignore_parser import (
     get_default_ignore_patterns,
     parse_gitignore_content,
@@ -34,19 +32,17 @@ class SandboxBootstrapNode:
     
     设计模式 - 可扩展性：
     - 通过构造函数的 next_node 参数配置成功后跳转的下一个节点
-    - Issue workflow: SandboxBootstrapNode() → 默认跳转到 "main_router"
+    - Issue workflow: SandboxBootstrapNode()
     - Merge workflow: SandboxBootstrapNode(next_node="merge_diff_collector")
     - 未来的新 workflow: SandboxBootstrapNode(next_node="your_entry_node")
     """
 
-    def __init__(self, next_node: str = "main_router"):
+    def __init__(self, next_node: str = NodeName.PLANNER_ORCHESTRATOR.value):
         """
         初始化节点
         
         Args:
             next_node: 成功后跳转的下一个节点名称
-                      默认为 "main_router" (issue workflow)
-                      其他 workflow 需显式传入各自的入口节点名
         """
         self.sandbox_manager = get_sandbox_manager()
         self.next_node = next_node
