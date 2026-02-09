@@ -153,7 +153,6 @@ class SandboxBootstrapNode:
 
             # 5. 读取 .gitignore 并解析忽略规则
             ignore_patterns = await self._load_ignore_patterns(sandbox_id, repo_path)
-            logger.info(f"成功加载忽略规则: {len(ignore_patterns)} 条")
 
             # 6. 检查项目是否已在向量库中，如果不存在则进行首次索引
             await self._check_and_index_project(project_info, repo_path, sandbox_id)

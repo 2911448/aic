@@ -2,11 +2,12 @@
 TaskRunner Node - 任务执行节点
 
 职责：
-- 从 planning.next_tasks 读取任务
-- 调用 run_agent_core 执行（支持单任务或并行任务）
+- 从 planning.next_phases 读取全局计划的第 1 个 phase
+- 调用 run_agent_core 执行该 phase（支持单任务或并行任务）
 - 合并结果回写 state
 - 记录执行历史到 orchestration_history
 - 调用 summary 工具生成执行摘要并写入 execution_history
+- 执行完成后返回 Planner，由 Planner 动态更新全局计划
 """
 
 from typing import Literal
@@ -28,9 +29,10 @@ class TaskRunnerNode:
     任务执行节点（系统派发，不依赖 LLM）
     
     功能：
-    - 读取 planning.next_tasks
-    - 执行单任务或并行任务
+    - 读取 planning.next_phases[0]（只执行第 1 个 phase）
+    - 执行该 phase（单任务 or 并行任务）
     - 合并结果并记录历史
+    - 返回 Planner，由 Planner 动态更新全局计划
     """
     
     def __init__(self):
@@ -43,7 +45,7 @@ class TaskRunnerNode:
         state: IssueProcessState,
     ) -> Command[Literal["planner_orchestrator", "sandbox_teardown"]]:
         """
-        执行任务
+        执行第 1 个 phase
         
         Args:
             state: 当前工作流状态
@@ -59,12 +61,12 @@ class TaskRunnerNode:
         update_dict = {}
         
         try:
-            # 从 planning 读取待执行任务
+            # 从 planning 读取待执行阶段
             planning = state.get("planning", {})
-            next_tasks = planning.get("next_tasks", [])
+            next_phases = planning.get("next_phases", [])
             
-            if not next_tasks:
-                error_msg = "TaskRunner: planning.next_tasks 为空，无任务可执行"
+            if not next_phases:
+                error_msg = "TaskRunner: planning.next_phases 为空，无阶段可执行"
                 logger.error(error_msg)
                 runtime = state.get("runtime", {})
                 update_dict.update({
@@ -80,18 +82,25 @@ class TaskRunnerNode:
                 })
                 return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
             
-            # 发送进度事件
-            task_count = len(next_tasks)
+            current_phase = next_phases[0]
+            task_count = len(current_phase)
             mode = "并行" if task_count > 1 else "单任务"
+            
+            logger.info(
+                f"[TaskRunner] 开始执行: {mode} {task_count} 个任务 "
+                f"({', '.join(t.get('agent', '?') for t in current_phase)})"
+            )
+            
+            # 发送进度事件
             await adispatch_custom_event(
                 ProcessStage.PLANNING.value,
                 {
                     "status": NodeName.TASK_RUNNER.value,
-                    "progress": f"执行 {mode}（{task_count} 个任务）...",
+                    "progress": f"执行 Phase 1（{mode} {task_count} 个任务）...",
                     "think_chain_item": {
                         "type": NodeName.TASK_RUNNER.value,
                         "title": "TaskRunner",
-                        "desc": f"{mode}执行：{', '.join(t.get('agent', '?') for t in next_tasks)}",
+                        "desc": f"执行 Phase 1: {task_count} 个任务",
                         "urls": [],
                     },
                 },
@@ -100,18 +109,15 @@ class TaskRunnerNode:
             # 记录开始时间
             start_time = time.time()
             
-            # 执行任务（单任务 or 并行）
-            logger.info(f"[TaskRunner] 开始执行 {task_count} 个任务（{mode}）")
-            
+            # 执行当前 phase（单任务 or 并行）
             if task_count == 1:
                 # 单任务执行
-                task = next_tasks[0]
+                task = current_phase[0]
                 result_update = await run_agent_core(
                     agent=task.get("agent"),
                     task=task.get("task"),
                     state=state,
                     allowed_files=task.get("allowed_files", []),
-                    contract_constraints=task.get("contract_constraints", {}),
                 )
             else:
                 # 并行任务执行
@@ -119,7 +125,7 @@ class TaskRunnerNode:
                     agent=None,  # 并行模式不需要单个 agent
                     task=None,
                     state=state,
-                    parallel_tasks=next_tasks,
+                    parallel_tasks=current_phase,
                 )
             
             # 记录结束时间
@@ -143,7 +149,7 @@ class TaskRunnerNode:
                     update_dict[key] = value
             
             # 特殊处理：如果本次执行包含 verification，检查结果并更新 retry_count
-            has_verification = any(t.get("agent") == "verification" for t in next_tasks)
+            has_verification = any(t.get("agent") == "verification" for t in current_phase)
             if has_verification:
                 verification = state.get("verification", {})
                 updated_verification = update_dict.get("verification", verification)
@@ -203,18 +209,18 @@ class TaskRunnerNode:
                 entry = f'[Round {round_no}] Agent: {agent} | Task: "{task}" | Result: {summary}'
                 new_exec_history_entries.append(entry)
             
-            # 记录执行历史
+            # 记录执行历史（只记录当前 phase）
             execution_record = {
                 "timestamp": time.time(),
-                "mode": mode,
+                "mode": "phase1",
                 "task_count": task_count,
-                "tasks": [
+                "phase": [
                     {
                         "task_id": t.get("task_id"),
                         "agent": t.get("agent"),
                         "task": t.get("task", ""),
                     }
-                    for t in next_tasks
+                    for t in current_phase
                 ],
                 "elapsed_time": elapsed_time,
                 "status": "completed",
@@ -227,10 +233,11 @@ class TaskRunnerNode:
             
             # 更新 planning
             runtime = state.get("runtime", {})
+            # 使用 update_dict 中已更新的 planning
+            current_planning = update_dict.get("planning", planning)
             update_dict.update({
                 "planning": {
-                    **planning,
-                    "next_tasks": [],  # 清空已执行的任务
+                    **current_planning,
                     "orchestration_history": existing_history + [execution_record],
                     "round": round_no,
                     "last_round_summary": round_summary,
@@ -246,18 +253,20 @@ class TaskRunnerNode:
                 },
             })
             
-            logger.info(f"[TaskRunner] 执行完成，耗时 {elapsed_time:.2f}s")
+            logger.info(
+                f"[TaskRunner] Phase 1 执行完成: {task_count} 个任务，耗时 {elapsed_time:.2f}s"
+            )
             
             # 发送完成事件
             await adispatch_custom_event(
                 ProcessStage.THINK_CHAIN.value,
                 {
                     "status": NodeName.TASK_RUNNER.value,
-                    "progress": f"{mode}执行完成",
+                    "progress": "Phase 1 执行完成",
                     "think_chain_item": {
                         "type": NodeName.TASK_RUNNER.value,
                         "title": "TaskRunner",
-                        "desc": f"完成 {task_count} 个任务（{elapsed_time:.2f}s）",
+                        "desc": f"完成 Phase 1: {task_count} 个任务（{elapsed_time:.2f}s）",
                         "urls": [],
                     },
                 },

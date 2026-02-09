@@ -25,6 +25,7 @@ from app.graph.state import IssueProcessState, ProcessStage
 from app.graph.state.node_names import NodeName
 from app.llms.llm_factory import get_llm_model
 from app.schemas.planner_decision import PlannerDecision
+from app.tools.registry import get_tools_for_agent
 
 
 class PlannerAgentNode:
@@ -43,6 +44,7 @@ class PlannerAgentNode:
         self.agent_registry = agent_registry
         self.max_retries = 3  # 验证/修复循环的最大重试次数
         self.max_idle_steps = 3  # 无进展步数上限（防空转）
+        self.tools = get_tools_for_agent("planner")
     
     @track_node_metrics("planner_orchestrator")
     async def __call__(
@@ -216,12 +218,21 @@ class PlannerAgentNode:
                 # state 有进展，重置 idle_count
                 idle_count = 0
             
-            # 写入 planning.next_tasks 和决策记录
+            # 写入 planning.next_phases 和决策记录
             runtime = state.get("runtime", {})
+            
+            # 将 phases 转换为可序列化格式
+            serialized_phases = []
+            for phase in decision.phases:
+                serialized_phases.append([task.model_dump() for task in phase])
+            
+            # 统计总任务数
+            total_tasks = sum(len(phase) for phase in decision.phases)
+            
             update_dict.update({
                 "planning": {
                     **planning,
-                    "next_tasks": [task.model_dump() for task in decision.tasks],
+                    "next_phases": serialized_phases,  # 全局计划（系统只执行第 1 个 phase）
                     "last_decision": {
                         "timestamp": time.time(),
                         "decision": decision.model_dump(),
@@ -236,13 +247,14 @@ class PlannerAgentNode:
                         *runtime.get("executed_nodes", []),
                         NodeName.PLANNER_ORCHESTRATOR.value,
                     ],
-                    "current_step": "Planner 决策完成",
+                    "current_step": "Planner 决策完成（已更新全局计划）",
                 },
             })
             
             logger.info(
-                f"[Planner] 决策完成: {len(decision.tasks)} 个任务, "
-                f"推理: {decision.reason[:100]}"
+                f"[Planner] 全局计划已更新: {len(decision.phases)} 个阶段, "
+                f"共 {total_tasks} 个任务 (Phase 1: {len(decision.phases[0]) if decision.phases else 0} 个任务), "
+                f"推理: {decision.reason}"
             )
             
             return Command(update=update_dict, goto=NodeName.TASK_RUNNER.value)
@@ -308,8 +320,25 @@ class PlannerAgentNode:
         verification = state.get("verification", {})
         delivery = state.get("delivery", {})
         
+        # OmniExplorer 结果
+        omni_explorer = analysis.get("omni_explorer", [])
+        # 统计所有探索结果
+        explorer_task_count = len(omni_explorer) if isinstance(omni_explorer, list) else 0
+        total_references = 0
+        has_targets = False
+        
+        if isinstance(omni_explorer, list):
+            for item in omni_explorer:
+                if isinstance(item, dict):
+                    task_result = item.get("result", {})
+                    if task_result.get("target"):
+                        has_targets = True
+                    total_references += len(task_result.get("references", []))
+        
         fingerprint_data = {
-            "anchor_symbols_count": len(analysis.get("anchor_symbols", [])),
+            "omni_explorer_task_count": explorer_task_count,
+            "omni_explorer_has_targets": has_targets,
+            "omni_explorer_total_references": total_references,
             "patches_count": len(patching.get("patches", [])),
             "verification_passed": verification.get("final_verification", {}).get("passed"),
             "has_review_artifact": bool(delivery.get("review_artifact")),
@@ -357,6 +386,41 @@ class PlannerAgentNode:
         
         return "\n".join(lines) if lines else "（无执行历史）"
     
+    def _build_global_plan_text(self, state: IssueProcessState) -> str:
+        """
+        构建当前全局计划的文本表示（注入到 prompt）
+        
+        从 state.planning.next_phases 中取出当前全局计划，渲染为简洁文本
+        
+        Returns:
+            全局计划文本
+        """
+        planning = state.get("planning", {})
+        next_phases = planning.get("next_phases", [])
+        
+        if not next_phases:
+            return "（无当前计划）"
+        
+        lines = []
+        lines.append(f"当前全局计划（共 {len(next_phases)} 个阶段）：")
+        lines.append("")
+        
+        for phase_idx, phase in enumerate(next_phases, start=1):
+            task_count = len(phase)
+            agents = [t.get("agent", "?") for t in phase]
+            lines.append(f"Phase {phase_idx}: {task_count} 个任务 ({', '.join(agents)})")
+            for task in phase:
+                task_id = task.get("task_id", "?")
+                agent = task.get("agent", "?")
+                task_desc = task.get("task", "")
+                # 截断过长的任务描述
+                if len(task_desc) > 100:
+                    task_desc = task_desc[:97] + "..."
+                lines.append(f"  - [{task_id}] {agent}: {task_desc}")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
     async def _make_decision(
         self,
         state: IssueProcessState,
@@ -372,6 +436,7 @@ class PlannerAgentNode:
         """
         issue_data = state.get("issue_data", {})
         project_info = state.get("project_info", {})
+        sandbox = state.get("sandbox", {})
         
         issue_title = issue_data.get("title", "")
         issue_description = issue_data.get("description", "")
@@ -380,6 +445,7 @@ class PlannerAgentNode:
         # 在 sandbox 中，工作目录已经是仓库根目录
         # 所有文件路径都是相对于根目录的，不需要任何前缀
         project_path = "."  # 表示当前目录（仓库根目录）
+        sandbox_id = sandbox.get("sandbox_id", "")
         
         if labels and isinstance(labels[0], dict):
             labels = [label.get("title", "") for label in labels]
@@ -394,6 +460,9 @@ class PlannerAgentNode:
         # 构建 execution_history
         execution_history = self._build_execution_history_text(state)
         
+        # 构建当前全局计划的文本表示
+        current_global_plan = self._build_global_plan_text(state)
+        
         # 构建 System Prompt
         system_prompt = self.prompt_manager.render(
             "planner_agent",
@@ -402,20 +471,21 @@ class PlannerAgentNode:
             labels=labels,
             project_name=project_name,
             project_path=project_path,
+            sandbox_id=sandbox_id,
             agent_capabilities=agent_capabilities,
             state_summary=last_round_summary,  # 直接传入上一轮汇总摘要
             execution_history=execution_history,
+            current_global_plan=current_global_plan,  # 注入当前全局计划
             max_retries=self.max_retries,
             max_idle_steps=self.max_idle_steps,
         )
         
-        # 创建 LLM
         llm = await get_llm_model(model_name="gpt-5-2025-08-07", temperature=0.1)
         
-        # 创建 agent（使用结构化输出，不使用工具）
+        # 创建 agent
         agent = create_agent(
             model=llm,
-            tools=[],  # Planner 不需要工具，直接在 prompt 中提供 state 信息
+            tools=self.tools,  
             system_prompt=system_prompt,
             response_format=PlannerDecision,  # 要求结构化输出
         )
@@ -427,9 +497,12 @@ class PlannerAgentNode:
         
         decision: PlannerDecision = result["structured_response"]
         
+        # 计算总任务数
+        total_tasks = sum(len(phase) for phase in decision.phases)
+        
         logger.info(
             f"[Planner] 决策完成: terminate={decision.terminate}, "
-            f"tasks={len(decision.tasks)}, "
+            f"phases={len(decision.phases)}, total_tasks={total_tasks}, "
             f"reason={decision.reason}"
         )
         

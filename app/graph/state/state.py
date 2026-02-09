@@ -3,22 +3,11 @@ LangGraph State definitions for Issue processing workflow
 
 State 说明：
 - 从平铺字段改为分域结构，提升可维护性和清晰度
-- 每个域（sandbox、analysis、retrieval等）独立管理相关字段
+- 每个域（sandbox、analysis、patching等）独立管理相关字段
 - 使用 TypedDict 嵌套结构，保持与 LangGraph 兼容性
 """
 
-from collections.abc import Sequence
-from typing import Annotated, Any, Optional, TypedDict
-
-from langchain_core.messages import BaseMessage
-
-
-def reduce_messages(
-    left: list[BaseMessage] | Sequence[BaseMessage],
-    right: list[BaseMessage] | Sequence[BaseMessage],
-) -> list[BaseMessage]:
-    """Merge message lists for Annotated reduce operation"""
-    return list(left) + list(right)
+from typing import Any, Optional, TypedDict
 
 
 # ============================================================================
@@ -38,33 +27,16 @@ class SandboxInfo(TypedDict, total=False):
 class AnalysisInfo(TypedDict, total=False):
     """Issue 分析结果（PlannerAgent 产出 - Issue 理解部分 + OmniExplorer 产出）"""
 
-    search_queries: list[str]  # RAG 搜索查询列表（用于代码检索）
-    
-    # OmniExplorer 产出
-    semantic_hits: list[dict]  # 语义检索结果
-    anchor_symbols: list[dict]  # 锚定符号列表
-    ripple_graph: dict  # 调用涟漪图
-    signature_contracts: dict[str, str]  # 函数签名契约  
+    # OmniExplorer 产出（新三步工作流）
+    omni_explorer: list[dict]  # OmniExplorer 探索结果列表，每个元素包含 task_id 和探索结果 
 
 
-class RetrievalInfo(TypedDict, total=False):
-    """代码检索结果（CodeRetriever 产出）"""
-
-    retrieved_code: list[dict]  
-    retrieval_meta: Optional[dict]  
-
-
-class TargetingInfo(TypedDict, total=False):
-    """切入点选择（EntrySelector）"""
-
-    current_target: Optional[dict]  # 当前聚焦的目标符号 (TargetContext)
 
 
 class PatchingInfo(TypedDict, total=False):
     """补丁生成与管理（CodeAgent 产出）- 结构化版本"""
 
     patches: list[dict]  # 补丁产物列表（PatchArtifact 的 dict 表示）
-    applied_history: list[dict]  # 补丁应用历史（记录每轮apply结果/失败原因）
 
 
 class VerificationInfo(TypedDict, total=False):
@@ -87,10 +59,10 @@ class PlanningInfo(TypedDict, total=False):
 
     retry_count: int  # 重试计数器（用于熔断验证/修复循环）
     orchestration_history: list[dict]  # 编排历史记录（包含 Planner 决策 + TaskRunner 执行结果）
-    next_tasks: list[dict]  # Planner 决策的待执行任务列表（由 TaskRunner 消费）
+    next_phases: list[list[dict]]  # Planner 决策的全局阶段列表（TaskRunner 只执行第 1 个阶段，执行后回到 Planner 动态更新）
     last_decision: Optional[dict]  # 上一次 Planner 决策（用于可观测性）
     idle_count: int  # 无进展计数（用于空转熔断）
-    round: int  # 当前执行轮次（TaskRunner 每次执行后 +1）
+    round: int  # 当前执行轮次（TaskRunner 每次执行 Phase 1 后 +1）
     last_round_summary: str  # 最近一轮执行的汇总摘要（单agent时为该agent的reasoning；多agent时为多行汇总，每行≤300字）
 
 
@@ -130,8 +102,6 @@ class IssueProcessState(TypedDict, total=False):
     - sandbox: SandboxBootstrap 填充，其他节点只读
     - analysis: PlannerAgent 产出 - Issue 理解
     - planning: PlannerAgent + Scheduler 产出 - 任务编排（execution_plan, task_status, retry_count）
-    - retrieval: CodeRetriever 产出（检索到的代码片段，基于 analysis.search_queries）
-    - targeting: EntrySelector 产出（选定的目标符号）
     - patching: CodeAgent 产出（结构化补丁产物列表 - PatchArtifact[]）
     - verification: VerificationFlow 产出（mypy/ruff 验证结果）
     - delivery: MRPublisher 产出（MR URL, branch_name, review_artifact）
@@ -139,9 +109,6 @@ class IssueProcessState(TypedDict, total=False):
     - runtime: 流程控制元数据（executed_nodes, error, trace_id）
     - execution_history: 执行轨迹记录（字符串列表，格式：[Round N] Agent: xxx | Task: "..." | Result: xxx）
     """
-
-    # Message History (for LLM conversation)
-    messages: Annotated[Sequence[BaseMessage], reduce_messages]
 
     # Original Input
     issue_data: dict  # GitLab Issue raw data from webhook
@@ -151,8 +118,6 @@ class IssueProcessState(TypedDict, total=False):
     sandbox: SandboxInfo  # Sandbox 生命周期信息
     planning: PlanningInfo  # Planner 与 Scheduler 信息
     analysis: AnalysisInfo  # Issue 分析结果
-    retrieval: RetrievalInfo  # 代码检索结果
-    targeting: TargetingInfo  # 切入点选择
     patching: PatchingInfo  # 补丁生成与管理（结构化）
     verification: VerificationInfo  # 验证结果
     delivery: DeliveryInfo  # MR 提交结果（含评审报告）
@@ -178,7 +143,7 @@ def init_state_defaults(state: IssueProcessState) -> IssueProcessState:
         state["planning"] = {
             "retry_count": 0,
             "orchestration_history": [],
-            "next_tasks": [],
+            "next_phases": [],
             "last_decision": None,
             "idle_count": 0,
             "round": 0,
@@ -186,20 +151,11 @@ def init_state_defaults(state: IssueProcessState) -> IssueProcessState:
         }
     if "analysis" not in state:
         state["analysis"] = {
-            "search_queries": [],
-            "semantic_hits": [],
-            "anchor_symbols": [],
-            "ripple_graph": {"center": None, "nodes": [], "edges": []},
-            "signature_contracts": {},
+            "omni_explorer": [],
         }
-    if "retrieval" not in state:
-        state["retrieval"] = {"retrieved_code": []}
-    if "targeting" not in state:
-        state["targeting"] = {}
     if "patching" not in state:
         state["patching"] = {
             "patches": [],
-            "applied_history": [],
         }
     if "verification" not in state:
         state["verification"] = {}

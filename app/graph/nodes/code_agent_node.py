@@ -302,53 +302,24 @@ class CodeAgentNode:
         # 从任务中提取约束和上下文
         task_description = task.get("description", "")
         allowed_files = task.get("allowed_files", [])
-        allowed_symbols = task.get("allowed_symbols", [])
-        contract_constraints = task.get("contract_constraints", {})
-        forbidden_files = task.get("forbidden_files", [])
         
-        # 准备参考上下文
-        reference_context = None
+        # 准备验证错误信息
         verification_errors = None
-        
-        # 尝试从 targeting 和 retrieval 获取上下文（如果存在）
-        targeting = state.get("targeting", {})
-        retrieval = state.get("retrieval", {})
-        current_target = targeting.get("current_target")
-        retrieved_code = retrieval.get("retrieved_code", [])
-        
-        if current_target:
-            # 从检索结果中查找目标文件的代码
-            target_code = None
-            for code_snippet in retrieved_code:
-                if code_snippet.get("file_path") == current_target.get("file_path"):
-                    target_code = code_snippet.get("content", "")
-                    break
-            
-            reference_context = {
-                "file_path": current_target.get("file_path"),
-                "target_symbol": current_target.get("symbol_name"),
-                "symbol_type": current_target.get("symbol_type"),
-                "target_code": target_code,
-                "retrieved_code": retrieved_code,  # 提供所有检索到的上下文
-            }
-        
-        # 尝试从 verification 获取错误信息（如果存在）
         verification = state.get("verification", {})
         final_verification = verification.get("final_verification")
         if final_verification:
-            errors = final_verification.get("errors", [])
-            if errors:
-                verification_errors = errors  # 传递错误列表
+            all_issues = final_verification.get("all_issues", [])
+            if all_issues:
+                # 只传递 error 级别的问题
+                error_issues = [issue for issue in all_issues if issue.get("severity") == "error"]
+                if error_issues:
+                    verification_errors = error_issues
         
         # 构建 prompt
         prompt_text = self.prompt_manager.render(
             "code_agent",
             task_description=task_description,
             allowed_files=allowed_files,
-            allowed_symbols=allowed_symbols,
-            contract_constraints=contract_constraints,
-            forbidden_files=forbidden_files,
-            reference_context=reference_context,
             verification_errors=verification_errors,
             sandbox_id=sandbox_id,
         )
@@ -389,7 +360,6 @@ async def execute_code_agent(
     state: dict,
     task: str,
     allowed_files: list[str],
-    contract_constraints: dict[str, Any],
 ) -> dict:
     """
     执行 CodeAgent（供 run_agent 工具调用）
@@ -398,7 +368,6 @@ async def execute_code_agent(
         state: 当前 state
         task: 任务描述
         allowed_files: 允许修改的文件
-        contract_constraints: 契约约束
     
     Returns:
         state 更新字典
@@ -410,9 +379,6 @@ async def execute_code_agent(
         "id": "temp_task",
         "description": task,
         "allowed_files": allowed_files,
-        "allowed_symbols": [],
-        "contract_constraints": contract_constraints,
-        "forbidden_files": [],
     }
     
     # 执行代码生成

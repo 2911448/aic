@@ -815,7 +815,6 @@ class GitService:
         Raises:
             GitError: 补丁应用失败
         """
-        # 验证补丁内容
         if not patch_content or not patch_content.strip():
             raise GitError(
                 "补丁内容为空",
@@ -823,35 +822,38 @@ class GitService:
                 "apply_patch",
             )
         
-        # 验证补丁格式（应该以 --- 或 diff 开头）
-        first_line = patch_content.strip().split('\n')[0]
-        if not (first_line.startswith('---') or first_line.startswith('diff')):
-            logger.warning(f"补丁格式可能不正确，首行: {first_line[:100]}")
+        # # 基本清理：换行符标准化、移除 BOM、移除代码围栏
+        # patch_content = patch_content.replace("\r\n", "\n").replace("\r", "\n")
+        # if patch_content.startswith("\ufeff"):
+        #     patch_content = patch_content.lstrip("\ufeff")
+        
+        # # 移除 Markdown 代码围栏（如果有）
+        # lines = patch_content.split("\n")
+        # cleaned_lines = [line for line in lines if not line.strip().startswith("```")]
+        # patch_content = "\n".join(cleaned_lines)
+        
+        # # 确保以换行符结尾
+        # if not patch_content.endswith("\n"):
+        #     patch_content += "\n"
         
         logger.info(
             f"沙箱 {self._sandbox_id}: 开始应用补丁 "
             f"(size={len(patch_content)} bytes, lines={patch_content.count(chr(10))})"
         )
 
-        # 使用 FileService 安全地写入补丁文件
         from app.sandbox.file_service import FileService
         file_service = FileService(self._manager, self._sandbox_id)
-        
-        # 创建临时补丁文件
         patch_file = f"/tmp/patch_{self._sandbox_id}.diff"
         
         try:
-            # 写入补丁内容
             await file_service.write_file(patch_file, patch_content, create_dirs=False)
-            
-            # 获取目标目录（优先使用绝对路径）
             target_dir = await self._get_target_dir(repo_path)
             
-            # 使用 git -C 来指定工作目录，避免相对路径问题
-            apply_cmd = f"git -C {target_dir} apply {patch_file}"
+            apply_cmd = f"git -C {target_dir} apply --whitespace=fix --unidiff-zero --verbose {patch_file}"
             result = await self._execute(apply_cmd, timeout=60, check=False)
             
             if not result.success:
+                logger.error(f"补丁应用失败: {result.stderr}")
                 raise GitError(
                     f"补丁应用失败: {result.stderr}",
                     self._sandbox_id,
@@ -861,7 +863,6 @@ class GitService:
             logger.info(f"沙箱 {self._sandbox_id}: 补丁应用成功")
             
         finally:
-            # 清理临时文件
             try:
                 await file_service.delete_file(patch_file)
             except Exception as e:

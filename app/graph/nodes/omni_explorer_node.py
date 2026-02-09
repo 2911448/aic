@@ -1,16 +1,16 @@
 """
-OmniExplorer Node - 全面探索节点
+OmniExplorer Node - 精准定位专家
 
-三段式逻辑：
-1. Semantic Search（定方向）：语义检索 Top-N 文件/代码块
-2. Symbolic Search（定位置）：符号定位到具体类/函数
-3. Structural Analysis（定影响）：构建涟漪图，找出所有调用方
+三步工作流：
+1. Semantic Search（语义检索）：在代码库中快速定位嫌疑函数
+2. Tree-sitter Parse（结构解析）：精确获取目标函数的结构信息
+3. Find References（查找引用）：用 ripgrep 找出所有调用者
 
 输出契约：
-- analysis.semantic_hits: 语义检索结果
-- analysis.anchor_symbols: 锚定符号（含签名）
-- analysis.ripple_graph: 调用涟漪图
-- analysis.signature_contracts: 函数签名契约（供并行 CodeAgent 参考）
+- analysis.omni_explorer.queries: 改写的查询列表
+- analysis.omni_explorer.suspects: 嫌疑函数列表（Top 3）
+- analysis.omni_explorer.target: 目标函数详细信息
+- analysis.omni_explorer.references: 调用者列表
 """
 
 
@@ -31,32 +31,45 @@ from app.llms.llm_factory import get_llm_model
 from app.tools.registry import get_tools_for_agent
 
 
-class AnchorSymbol(BaseModel):
-    """锚定符号"""
+class SuspectFunction(BaseModel):
+    """嫌疑函数"""
     file_path: str = Field(description="文件路径")
-    symbol_name: str = Field(description="符号名称")
-    start_line: int = Field(description="起始行")
-    end_line: int = Field(description="结束行")
-    signature: str = Field(description="函数/类签名")
-    symbol_type: str = Field(description="符号类型：function/class/method")
+    function_name: str = Field(description="函数名称")
+
+
+class TargetFunction(BaseModel):
+    """目标函数详细信息"""
+    file_path: str = Field(description="文件路径")
+    function_name: str = Field(description="函数名称")
+    start_line: int = Field(description="起始行号")
+    end_line: int = Field(description="结束行号")
+    signature: str = Field(description="函数签名")
+    indent: int = Field(description="缩进层级（空格数）")
+    returns: str = Field(description="返回对象（轻量推断）")
+
+
+class ReferenceLocation(BaseModel):
+    """引用位置"""
+    file_path: str = Field(description="文件路径")
+    line: int = Field(description="行号")
+    snippet: str = Field(description="代码片段")
+    caller_symbol: Optional[str] = Field(None, description="调用者符号（可选）")
 
 
 class OmniExplorerOutput(BaseModel):
     """OmniExplorer 输出"""
-    semantic_hits: list[dict] = Field(description="语义检索结果")
-    anchor_symbols: list[AnchorSymbol] = Field(description="锚定符号列表")
-    ripple_graph: dict = Field(description="调用涟漪图")
-    signature_contracts: dict[str, str] = Field(
-        description="函数签名契约：{symbol_name: signature}"
-    )
+    queries: list[str] = Field(description="改写的查询列表（2-3个）")
+    suspects: list[SuspectFunction] = Field(description="嫌疑函数列表（Top 3）")
+    target: TargetFunction = Field(description="目标函数详细信息")
+    references: list[ReferenceLocation] = Field(description="调用者列表")
     reasoning: str = Field(description="探索推理过程")
 
 
 class OmniExplorerNode:
     """
-    全面探索节点（替代 CodeRetriever + EntrySelector）
+    精准定位专家（OmniExplorer）
     
-    三段式：Semantic → Symbolic → Structural
+    三步工作流：Semantic Search → Tree-sitter Parse → Find References
     """
     
     def __init__(self):
@@ -70,7 +83,7 @@ class OmniExplorerNode:
         state: IssueProcessState,
     ) -> Command:
         """
-        执行全面探索
+        执行精准定位探索
         
         Args:
             state: 当前工作流状态
@@ -91,11 +104,11 @@ class OmniExplorerNode:
                 ProcessStage.CODE_SEARCH.value,
                 {
                     "status": NodeName.OMNI_EXPLORER.value,
-                    "progress": "正在全面探索代码库...",
+                    "progress": "正在精准定位目标函数...",
                     "think_chain_item": {
                         "type": NodeName.OMNI_EXPLORER.value,
                         "title": "OmniExplorer",
-                        "desc": "Semantic→Symbolic→Structural 三段式探索",
+                        "desc": "语义检索 → Tree-sitter → 查找引用",
                         "urls": [],
                     },
                 },
@@ -107,24 +120,24 @@ class OmniExplorerNode:
             execution_plan = planning.get("execution_plan", [])
             
             # 查找当前任务的描述（如果由 Planner 调度）
-            custom_query = None
+            task_description = None
             if active_task_id:
                 for task in execution_plan:
                     if task.get("id") == active_task_id:
-                        custom_query = task.get("description")
+                        task_description = task.get("description")
                         break
             
             # 设置 agent 上下文（用于日志追踪）
             set_agent_context(
                 agent_name="omni_explorer",
                 task_id=active_task_id,
-                task_description=custom_query,
+                task_description=task_description,
             )
             
-            logger.info(f"开始执行 OmniExplorer 任务{f': {custom_query}' if custom_query else ''}")
+            logger.info(f"开始执行 OmniExplorer 任务{f': {task_description}' if task_description else ''}")
             
             # 执行探索（使用 LLM Agent）
-            result = await self._explore(state, custom_query=custom_query)
+            result = await self._explore(state, task_description=task_description)
             
             if not result:
                 error_msg = "OmniExplorer 未返回有效结果"
@@ -143,16 +156,29 @@ class OmniExplorerNode:
                 })
                 return Command(update=update_dict, goto=NodeName.SANDBOX_TEARDOWN.value)
             
-            # 更新 state
+            # 更新 state（添加到列表）
             runtime = state.get("runtime", {})
             analysis = state.get("analysis", {})
+            
+            # 确定 task_id（如果有则用，否则用时间戳作为唯一标识）
+            import time
+            task_id = active_task_id or f"omni_{int(time.time())}"
+            
+            # 获取现有的 omni_explorer 列表
+            existing_omni_explorer = analysis.get("omni_explorer", [])
+            if not isinstance(existing_omni_explorer, list):
+                existing_omni_explorer = []
+            
+            # 添加本次结果到列表
+            updated_omni_explorer = existing_omni_explorer + [{
+                "task_id": task_id,
+                "result": result.model_dump(),
+            }]
+            
             update_dict.update({
                 "analysis": {
                     **analysis,
-                    "semantic_hits": result.semantic_hits,
-                    "anchor_symbols": [s.model_dump() for s in result.anchor_symbols],
-                    "ripple_graph": result.ripple_graph,
-                    "signature_contracts": result.signature_contracts,
+                    "omni_explorer": updated_omni_explorer,
                 },
                 "runtime": {
                     **runtime,
@@ -166,9 +192,9 @@ class OmniExplorerNode:
             
             logger.info(
                 f"OmniExplorer 完成: "
-                f"semantic_hits={len(result.semantic_hits)}, "
-                f"anchor_symbols={len(result.anchor_symbols)}, "
-                f"ripple_edges={len(result.ripple_graph.get('edges', []))}"
+                f"suspects={len(result.suspects)}, "
+                f"target={result.target.function_name}, "
+                f"references={len(result.references)}"
             )
             
             # 发送完成事件
@@ -180,7 +206,7 @@ class OmniExplorerNode:
                     "think_chain_item": {
                         "type": NodeName.OMNI_EXPLORER.value,
                         "title": "OmniExplorer",
-                        "desc": f"找到 {len(result.anchor_symbols)} 个锚点符号",
+                        "desc": f"定位到 {result.target.function_name}，找到 {len(result.references)} 个调用者",
                         "urls": [],
                     },
                 },
@@ -194,7 +220,7 @@ class OmniExplorerNode:
             update_dict.update({
                 "runtime": {
                     **runtime,
-                    "error": f"全面探索失败: {str(e)}",
+                    "error": f"精准定位失败: {str(e)}",
                     "executed_nodes": [
                         *runtime.get("executed_nodes", []),
                         NodeName.OMNI_EXPLORER.value,
@@ -212,24 +238,21 @@ class OmniExplorerNode:
     async def _explore(
         self,
         state: IssueProcessState,
-        custom_query: Optional[str] = None,
+        task_description: str,
     ) -> Optional[OmniExplorerOutput]:
         """
-        执行三段式探索（使用 LLM Agent）
+        执行三步探索（使用 LLM Agent）
         
         Args:
             state: 当前工作流状态
-            custom_query: 自定义查询（可选）
+            task_description: 任务描述
         
         Returns:
             OmniExplorerOutput 或 None
         """
-        issue_data = state.get("issue_data", {})
         project_info = state.get("project_info", {})
         sandbox = state.get("sandbox", {})
         
-        issue_title = issue_data.get("title", "")
-        issue_description = issue_data.get("description", "")
         project_name = project_info.get("name", "")
         sandbox_id = sandbox.get("sandbox_id", "")
         
@@ -242,9 +265,7 @@ class OmniExplorerNode:
             "omni_explorer",
             project_name=project_name,
             sandbox_id=sandbox_id,
-            issue_title=issue_title,
-            issue_description=issue_description,
-            custom_query=custom_query,
+            task_description=task_description,
         )
         
         # 调用 LLM Agent
@@ -267,9 +288,9 @@ class OmniExplorerNode:
         
         logger.info(
             f"[OmniExplorer] 探索完成, "
-            f"semantic_hits={len(output.semantic_hits)}, "
-            f"anchor_symbols={len(output.anchor_symbols)}, "
-            f"ripple_edges={len(output.ripple_graph.get('edges', []))}, "
+            f"suspects={len(output.suspects)}, "
+            f"target={output.target.function_name}, "
+            f"references={len(output.references)}, "
             f"推理: {output.reasoning}"
         )
         
@@ -283,43 +304,39 @@ async def execute_omni_explorer(state: dict, task: str) -> dict:
     
     Args:
         state: 当前 state
-        task: 任务描述（作为自定义查询）
+        task: 任务描述（作为 task_description）
     
     Returns:
-        state 更新字典
+        state 更新字典（注意：omni_explorer 结果不在这里写入，而是在 run_agent 中按 task_id 归档）
     """
     node = OmniExplorerNode()
-    # 使用 task 作为 custom_query
-    result = await node._explore(state, custom_query=task)
+    # 使用 task 作为 task_description
+    result = await node._explore(state, task)
     
     if not result:
         return {
             "__execution__": {
                 "reasoning": "探索未返回结果",
                 "result_hint": {
-                    "semantic_hits_count": 0,
-                    "anchor_symbols_count": 0,
-                    "ripple_edges_count": 0,
+                    "suspects_count": 0,
+                    "references_count": 0,
                 },
             },
         }
     
     return {
         "analysis": {
-            "semantic_hits": result.semantic_hits,
-            "anchor_symbols": [s.model_dump() for s in result.anchor_symbols],
-            "ripple_graph": result.ripple_graph,
-            "signature_contracts": result.signature_contracts,
+            "omni_explorer": result.model_dump(),  # 这里返回结果，由 run_agent 按 task_id 归档
         },
         "__execution__": {
             "reasoning": result.reasoning,
             "result_hint": {
-                "semantic_hits_count": len(result.semantic_hits),
-                "anchor_symbols_count": len(result.anchor_symbols),
-                "ripple_edges_count": len(result.ripple_graph.get("edges", [])),
+                "suspects_count": len(result.suspects),
+                "target_function": result.target.function_name,
+                "references_count": len(result.references),
             },
         },
     }
 
 
-__all__ = ["OmniExplorerNode", "execute_omni_explorer", "OmniExplorerOutput", "AnchorSymbol"]
+__all__ = ["OmniExplorerNode", "execute_omni_explorer", "OmniExplorerOutput"]

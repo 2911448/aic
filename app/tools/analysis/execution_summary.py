@@ -124,6 +124,13 @@ def _format_result_hint(result_hint: dict[str, Any]) -> str:
             parts.append(f"{key}={value}")
         elif isinstance(value, bool):
             parts.append(f"{key}={'是' if value else '否'}")
+        elif isinstance(value, list):
+            # 特殊处理列表类型（如 error_details）
+            if key == "error_details" and value:
+                # 错误详情列表，展开显示
+                parts.append(f"{key}=[\n" + "\n".join(value) + "\n]")
+            else:
+                parts.append(f"{key}={len(value)}项")
         else:
             parts.append(f"{key}={str(value)}")
     

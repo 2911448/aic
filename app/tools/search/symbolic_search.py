@@ -105,8 +105,8 @@ async def symbolic_search_core(
                             results["references"].append(ref)
         
         logger.info(
-            f"[symbolic_search] symbol={symbol_name}, "
-            f"defs={len(results['definitions'])}, refs={len(results['references'])}"
+            f"[symbolic_search] symbol: {symbol_name}, "
+            f"defs: {len(results['definitions'])}, refs: {len(results['references'])}"
         )
         
         return results

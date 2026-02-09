@@ -22,7 +22,6 @@ class ParallelTask(BaseModel):
     agent: str = Field(description="Agent 名称 (omni_explorer/code_agent/verification/mr_publisher)")
     task: str = Field(description="子任务描述")
     allowed_files: list[str] = Field(default_factory=list, description="允许修改的文件（仅 code_agent）")
-    contract_constraints: dict[str, Any] = Field(default_factory=dict, description="契约约束（仅 code_agent）")
 
 
 async def _execute_agent(
@@ -40,7 +39,7 @@ async def _execute_agent(
         task: 任务描述
         state: 当前 state（只读）
         task_id: 任务 ID（用于日志追踪）
-        **kwargs: 额外参数（如 allowed_files, contract_constraints）
+        **kwargs: 额外参数（如 allowed_files）
     
     Returns:
         执行结果（包含 state 更新）
@@ -72,8 +71,7 @@ async def _execute_agent(
         elif agent == "code_agent":
             from app.graph.nodes.code_agent_node import execute_code_agent
             allowed_files = kwargs.get("allowed_files", [])
-            contract_constraints = kwargs.get("contract_constraints", {})
-            return await execute_code_agent(state, task, allowed_files, contract_constraints)
+            return await execute_code_agent(state, task, allowed_files)
         
         elif agent == "verification":
             from app.graph.nodes.verification_node import execute_verification
@@ -96,7 +94,6 @@ async def run_agent_core(
     task: str,
     state: dict[str, Any],
     allowed_files: list[str] | None = None,
-    contract_constraints: dict[str, Any] | None = None,
     parallel_tasks: list[dict] | None = None,
 ) -> dict[str, Any]:
     """
@@ -107,7 +104,6 @@ async def run_agent_core(
         task: 任务描述（单任务时使用）
         state: 当前 state
         allowed_files: 允许修改的文件（单任务 + code_agent 时使用）
-        contract_constraints: 契约约束（单任务 + code_agent 时使用）
         parallel_tasks: 并行子任务列表（每个子任务可以是不同 agent）
     
     Returns:
@@ -126,7 +122,6 @@ async def run_agent_core(
                     state=state,
                     task_id=pt.task_id,  # 传递 task_id 用于日志追踪
                     allowed_files=pt.allowed_files,
-                    contract_constraints=pt.contract_constraints,
                 ))
             
             # 并行执行
@@ -135,8 +130,7 @@ async def run_agent_core(
             # 合并结果（按 agent 类型分域合并）
             merged_update = {}
             all_patches = []
-            all_semantic_hits = []
-            all_anchor_symbols = []
+            omni_explorer_results = []  # 收集 omni_explorer 结果列表
             execution_items = []  # 收集执行条目
             
             for idx, result in enumerate(results):
@@ -163,8 +157,12 @@ async def run_agent_core(
                 
                 # 提取并合并 analysis（omni_explorer）
                 analysis_update = result.get("analysis", {})
-                all_semantic_hits.extend(analysis_update.get("semantic_hits", []))
-                all_anchor_symbols.extend(analysis_update.get("anchor_symbols", []))
+                if "omni_explorer" in analysis_update:
+                    task_id = pt_dict["task_id"]
+                    omni_explorer_results.append({
+                        "task_id": task_id,
+                        "result": analysis_update["omni_explorer"],
+                    })
                 
                 # 其他单值域（verification/delivery）直接覆盖
                 for key in ["verification", "delivery"]:
@@ -178,12 +176,16 @@ async def run_agent_core(
                     "patches": existing_patches + all_patches,
                 }
             
-            if all_semantic_hits or all_anchor_symbols:
+            if omni_explorer_results:
                 existing_analysis = state.get("analysis", {})
+                # 合并到 omni_explorer 列表（每个专家的结果都保留）
+                existing_omni_explorer = existing_analysis.get("omni_explorer", [])
+                if not isinstance(existing_omni_explorer, list):
+                    existing_omni_explorer = []
+                
                 merged_update["analysis"] = {
                     **existing_analysis,
-                    "semantic_hits": existing_analysis.get("semantic_hits", []) + all_semantic_hits,
-                    "anchor_symbols": existing_analysis.get("anchor_symbols", []) + all_anchor_symbols,
+                    "omni_explorer": existing_omni_explorer + omni_explorer_results,
                 }
             
             # 附加执行条目（供 TaskRunner 汇总）
@@ -193,13 +195,13 @@ async def run_agent_core(
         
         # 单任务执行
         else:
+            task_id = "single_task"
             result = await _execute_agent(
                 agent=agent,
                 task=task,
                 state=state,
-                task_id=None,  # 单任务没有 task_id
+                task_id=task_id,
                 allowed_files=allowed_files or [],
-                contract_constraints=contract_constraints or {},
             )
             
             # 提取并收集 __execution__ 元数据
@@ -209,10 +211,29 @@ async def run_agent_core(
                 execution_items.append({
                     "agent": agent,
                     "task": task,
-                    "task_id": "single_task",
+                    "task_id": task_id,
                     "reasoning": execution_meta.get("reasoning", ""),
                     "result_hint": execution_meta.get("result_hint", {}),
                 })
+            
+            # 对于 omni_explorer，也需要添加到列表中
+            if agent == "omni_explorer" and "analysis" in result:
+                analysis_update = result.get("analysis", {})
+                if "omni_explorer" in analysis_update:
+                    omni_result = analysis_update["omni_explorer"]
+                    # 转换为列表格式
+                    existing_analysis = state.get("analysis", {})
+                    existing_omni_explorer = existing_analysis.get("omni_explorer", [])
+                    if not isinstance(existing_omni_explorer, list):
+                        existing_omni_explorer = []
+                    
+                    result["analysis"] = {
+                        **analysis_update,
+                        "omni_explorer": existing_omni_explorer + [{
+                            "task_id": task_id,
+                            "result": omni_result,
+                        }],
+                    }
             
             # 附加执行条目（供 TaskRunner 汇总）
             result["__execution_items__"] = execution_items

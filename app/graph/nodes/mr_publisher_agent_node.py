@@ -58,6 +58,25 @@ class MRPublisherAgentNode:
             MRPublishResult 结构化结果
         """
         try:
+            # Gate A: 强制检查 verification 必须通过
+            verification = state.get("verification", {})
+            final_verification = verification.get("final_verification")
+            
+            if not final_verification:
+                return MRPublishResult(
+                    success=False,
+                    error="Verification not run; refusing to create MR. Please run verification first."
+                )
+            
+            if not final_verification.get("passed", False):
+                error_count = final_verification.get("error_count", 0)
+                return MRPublishResult(
+                    success=False,
+                    error=f"Verification not passed ({error_count} errors); refusing to create MR. Please fix errors first."
+                )
+            
+            logger.info("[MR Gate A] Verification passed, proceeding with MR creation")
+            
             # 1. 前置检查：是否有补丁
             patching = state.get("patching", {})
             patches = patching.get("patches", [])
@@ -69,8 +88,7 @@ class MRPublisherAgentNode:
                 )
             
             # 2. 生成评审报告
-            verification = state.get("verification", {})
-            verification_result = verification.get("final_verification")
+            verification_result = final_verification
             
             review_artifact = await self._generate_review_artifact(
                 state,

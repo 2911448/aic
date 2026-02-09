@@ -16,8 +16,8 @@ from app.rag.rerank import rerank_service
 async def semantic_search_core(
     query: str,
     project_name: str,
-    top_k: int = 30,
-    final_top_n: int = 10,
+    top_k: int = 20,
+    final_top_n: int = 5,
 ) -> list[dict]:
     """
     语义检索核心函数
@@ -71,7 +71,21 @@ async def semantic_search_core(
         
         logger.info(f"[semantic_search] 重排序后保留 {len(reranked_results)} 个结果")
         
-        return reranked_results
+        # 4. 过滤返回字段（只保留必要信息，不返回完整代码内容）
+        filtered_results = []
+        for item in reranked_results:
+            filtered_item = {
+                "rerank_score": item.get("rerank_score"),
+                "symbol_name": item.get("symbol_name"),
+                "summary": item.get("summary"),
+                "file_path": item.get("file_path"),
+                "start_line": item.get("start_line"),
+                "end_line": item.get("end_line"),
+                "symbol_type": item.get("language"),  # 语言类型
+            }
+            filtered_results.append(filtered_item)
+        
+        return filtered_results
     
     except Exception as e:
         logger.error(f"[semantic_search] 执行失败: {e}", exc_info=True)
@@ -82,8 +96,8 @@ async def semantic_search_core(
 async def semantic_search(
     query: str,
     project_name: str,
-    top_k: int = 30,
-    final_top_n: int = 10,
+    top_k: int = 20,
+    final_top_n: int = 5,
 ) -> list[dict]:
     """
     语义检索：使用向量数据库查找相关代码片段（定方向）
@@ -91,16 +105,18 @@ async def semantic_search(
     Args:
         query: 搜索查询（自然语言描述或关键词）
         project_name: 项目名称
-        top_k: 从 Milvus 召回的结果数（默认 30）
-        final_top_n: 重排序后最终保留的结果数（默认 10）
+        top_k: 从 Milvus 召回的结果数
+        final_top_n: 重排序后最终保留的结果数
     
     Returns:
         代码片段列表，每个包含：
+        - rerank_score: 重排序分数（相关性得分）
+        - symbol_name: 符号名称（函数/类名）
+        - summary: 代码摘要（简要说明）
         - file_path: 文件路径
-        - content: 代码内容
-        - symbol_name: 符号名称
-        - summary: 摘要
-        - rerank_score: 重排序分数
+        - start_line: 起始行号
+        - end_line: 结束行号
+        - symbol_type: 符号类型（语言类型）
     """
     return await semantic_search_core(query, project_name, top_k, final_top_n)
 

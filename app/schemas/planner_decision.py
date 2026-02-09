@@ -19,19 +19,15 @@ class PlannerTask(BaseModel):
         default_factory=list,
         description="允许修改的文件（仅 code_agent）"
     )
-    contract_constraints: dict[str, Any] = Field(
-        default_factory=dict,
-        description="契约约束（仅 code_agent）"
-    )
 
 
 class PlannerDecision(BaseModel):
-    """Planner 决策输出"""
+    """Planner 决策输出（支持分阶段执行）"""
     terminate: bool = Field(description="是否终止流程（MR 已提交/熔断/致命错误）")
     reason: str = Field(description="决策原因/推理过程")
-    tasks: list[PlannerTask] = Field(
+    phases: list[list[PlannerTask]] = Field(
         default_factory=list,
-        description="要执行的任务列表（支持单任务或并行任务）"
+        description="分阶段任务列表。每个阶段内的任务可并行执行，阶段间严格串行。"
     )
     
     def validate_decision(self) -> tuple[bool, str]:
@@ -41,22 +37,32 @@ class PlannerDecision(BaseModel):
         Returns:
             (is_valid, error_message)
         """
-        # 如果不终止，必须有至少一个任务
-        if not self.terminate and len(self.tasks) == 0:
-            return False, "决策无效：未终止但没有指定任何任务"
+        # 如果不终止，必须有至少一个阶段且至少一个任务
+        if not self.terminate:
+            if len(self.phases) == 0:
+                return False, "决策无效：未终止但没有指定任何阶段"
+            
+            # 检查是否有空阶段
+            for idx, phase in enumerate(self.phases):
+                if len(phase) == 0:
+                    return False, f"决策无效：第 {idx + 1} 阶段为空"
         
-        # 如果终止，不应该有任务
-        if self.terminate and len(self.tasks) > 0:
-            return False, "决策无效：已终止但仍指定了任务"
+        # 如果终止，不应该有任何阶段
+        if self.terminate and len(self.phases) > 0:
+            return False, "决策无效：已终止但仍指定了阶段"
         
-        # 检查 task_id 唯一性
-        task_ids = [t.task_id for t in self.tasks]
+        # 收集所有任务，检查 task_id 唯一性
+        all_tasks = []
+        for phase in self.phases:
+            all_tasks.extend(phase)
+        
+        task_ids = [t.task_id for t in all_tasks]
         if len(task_ids) != len(set(task_ids)):
             return False, "决策无效：task_id 不唯一"
         
         # 检查 agent 名称合法性
         valid_agents = {"omni_explorer", "code_agent", "verification", "mr_publisher"}
-        for task in self.tasks:
+        for task in all_tasks:
             if task.agent not in valid_agents:
                 return False, f"决策无效：未知的 agent 类型 '{task.agent}'"
         

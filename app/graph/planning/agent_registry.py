@@ -6,12 +6,12 @@ Agent Registry - Agent 注册表
 2. 生成 run_agent 工具的 schema（枚举值）
 
 设计原则：
-- 注册字段：name/description/tool_whitelist/enabled
+- 注册字段：name/description/enabled
 - AgentRegistry 注入 system prompt，LLM 形成"可用能力空间"
 - LLM 通过工具调用发起调度，系统仅执行不决策
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -20,7 +20,6 @@ class AgentCard:
     
     name: str  # 唯一标识（用于 run_agent 的 agent 参数）
     description: str  # 能力描述（一句话说明职责与适用场景）
-    tool_whitelist: list[str] = field(default_factory=list)  # 可用工具白名单
     enabled: bool = True  # 是否允许被调用
     
     def to_capability_text(self) -> str:
@@ -43,15 +42,13 @@ class AgentRegistry:
         self.register(AgentCard(
             name="omni_explorer",
             description="由面到点、由点到网：Semantic Search（定方向）→ Symbolic Search（定位置）→ Structural Analysis（定影响），产出涟漪图与函数签名契约",
-            tool_whitelist=["semantic_search", "symbolic_search", "structural_analysis", "read_file", "parse_ast", "run_command"],
             enabled=True,
         ))
         
         # CodeAgent - 代码生成与修复
         self.register(AgentCard(
             name="code_agent",
-            description="代码生成能力：读+写代码，生成 unified diff 补丁，内部自愈（局部语法/拼写错误重试），遵守 contract_constraints 保证并行一致性",
-            tool_whitelist=["read_file", "parse_ast", "search_symbol", "check_syntax", "run_command"],
+            description="代码生成能力：读+写代码，生成 unified diff 补丁，内部自愈（局部语法/拼写错误重试），遵守 allowed_files 文件范围约束保证并行隔离",
             enabled=True,
         ))
         
@@ -59,7 +56,6 @@ class AgentRegistry:
         self.register(AgentCard(
             name="verification",
             description="全量静态检查：mypy + ruff，失败结果回传给 Planner 重新规划",
-            tool_whitelist=["run_command"],
             enabled=True,
         ))
         
@@ -67,7 +63,6 @@ class AgentRegistry:
         self.register(AgentCard(
             name="mr_publisher",
             description="生成结构化评审报告（含分支名、技术细节、风险评估）并提交 Merge Request：创建分支、推送代码、创建 GitLab MR",
-            tool_whitelist=[],
             enabled=True,
         ))
     

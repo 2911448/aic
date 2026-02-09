@@ -49,11 +49,14 @@ class ToolRegistry:
         
         # Agent 工具白名单配置
         self._agent_tool_whitelist = {
-            # OmniExplorer: Semantic→Symbolic→Structural 三段式
+            # Planner
+            "planner": [
+                "run_command",
+            ],
+
+            # OmniExplorer
             "omni_explorer": [
                 "semantic_search",
-                "symbolic_search",
-                "structural_analysis",
                 "read_file",
                 "parse_ast",
                 "run_command",
@@ -61,9 +64,9 @@ class ToolRegistry:
             
             # CodeAgent: 生成代码能力（读+写）
             "code_agent": [
-                "read_file",
-                "parse_ast",
-                "check_syntax",
+                # "read_file",
+                # "parse_ast",
+                # "check_syntax",
                 "run_command",
             ],
             
@@ -93,7 +96,6 @@ class ToolRegistry:
             else:
                 logger.warning(f"工具 '{tool_name}' 不存在于注册表中")
         
-        logger.info(f"为 Agent '{agent_name}' 加载了 {len(tools)} 个工具")
         return tools
     
     def get_all_tools(self) -> list[Callable]:

@@ -437,16 +437,33 @@ async def execute_verification(state: dict) -> dict:
     # 运行全量检查
     result = await node._run_full_static_check(state, file_paths)
     
+    # 构建详细的错误信息摘要（用于传递给 Planner）
+    error_details = []
+    if result.error_count > 0:
+        # 只包含 error 级别的问题
+        error_issues = [i for i in result.all_issues if i.severity == "error"]
+        for issue in error_issues:
+            error_details.append(
+                f"- {issue.file_path}:{issue.start_line} [{issue.error_code or 'error'}] {issue.error_info}"
+            )
+    
+    # 构建 reasoning（用于 summary）
+    if result.passed:
+        reasoning = f"验证通过：检查了 {len(file_paths)} 个文件，无错误"
+    else:
+        reasoning = f"验证失败：发现 {result.error_count} 个错误\n" + "\n".join(error_details)
+    
     return {
         "verification": {
             "final_verification": result.model_dump(),
         },
         "__execution__": {
-            "reasoning": f"全量静态检查完成，检查了 {len(file_paths)} 个文件",
+            "reasoning": reasoning,
             "result_hint": {
                 "passed": result.passed,
                 "error_count": result.error_count,
                 "warning_count": result.warning_count,
+                "error_details": error_details,  # 添加详细错误信息
             },
         },
     }

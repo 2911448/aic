@@ -45,7 +45,7 @@ async def run_command_in_sandbox_core(
         )
         
         logger.info(
-            f"[Tool] run_command: cmd='{command}', "
+            f"[Tool] run_command: cmd='{command[:50]}...', "
             f"exit_code={result.exit_code}"
         )
         
